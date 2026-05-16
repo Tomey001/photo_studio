@@ -25,10 +25,17 @@ class Config:
     # This turns off a feature we do not need (saves memory)
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # Email settings — we will fill these in later during Phase 8
+    # Email settings — configurable via environment variables.
+    # Gmail SMTP requires TLS (port 587).
     MAIL_SERVER = os.environ.get('MAIL_SERVER') or 'smtp.gmail.com'
     MAIL_PORT = int(os.environ.get('MAIL_PORT') or 587)
     MAIL_USE_TLS = True
+
+    # Must be set in your environment (recommended) or via a .env file.
     MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
     MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
-    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_USERNAME')
+
+    # Flask-Mail uses this as the default From: address.
+    # We fall back to MAIL_USERNAME if present.
+    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER') or os.environ.get('MAIL_USERNAME')
+

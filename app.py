@@ -178,8 +178,7 @@ def send_admin_new_appointment_email(appointment):
             <div style="padding: 25px; background-color: #f9f9f9;">
                 <p style="margin-top: 0;">Hello LensCraft Studio Admin,</p>
                 <p style="margin-bottom: 20px;">
-                    A customer has successfully booked an appointment. Please login to your admin dashboard
-                    to review and manage the appointment.
+                    A new appointment has been booked. Please login to the admin dashboard to review and manage the appointment.
                 </p>
 
                 <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0;">
