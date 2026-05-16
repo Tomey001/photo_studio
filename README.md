@@ -1,0 +1,1 @@
+Developed a web-based appointment booking system for photography studios using Python Flask, SQLite, HTML, CSS, and Bootstrap. The system allows customers to book appointments online while administrators manage bookings through a secure dashboard. Features include email notifications, appointment management, and responsive design.
