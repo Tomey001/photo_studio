@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Photo Studio{% endblock %}</title>
+
+    <!-- Bootstrap CSS — gives us professional styling for free -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Bootstrap Icons — for small icons like calendar, camera, etc. -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+
+    <!-- Our custom CSS file -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <!-- ======= NAVBAR ======= -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <!-- Studio name / logo -->
+            <a class="navbar-brand fw-bold" href="{{ url_for('index') }}">
+                <i class="bi bi-camera-fill me-2"></i>LensCraft Studio
+            </a>
+
+            <!-- Mobile menu toggle button -->
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <!-- Nav links -->
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">
+                            <i class="bi bi-house me-1"></i>Home
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('book') }}">
+                            <i class="bi bi-calendar-plus me-1"></i>Book Appointment
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('admin_login') }}">
+                            <i class="bi bi-person-lock me-1"></i>Admin
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    <!-- ======= END NAVBAR ======= -->
+
+    <!-- ======= FLASH MESSAGES ======= -->
+    <!-- These are pop-up notification messages (success, error, warning) -->
+    <div class="container mt-3">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+    <!-- ======= END FLASH MESSAGES ======= -->
+
+    <!-- ======= MAIN CONTENT ======= -->
+    <!-- Each page fills in this block with its own content -->
+    <main class="container my-4">
+        {% block content %}{% endblock %}
+    </main>
+    <!-- ======= END MAIN CONTENT ======= -->
+
+    <!-- ======= FOOTER ======= -->
+    <footer class="bg-dark text-white text-center py-3 mt-5">
+        <p class="mb-0">
+            <i class="bi bi-camera me-1"></i>
+            &copy; 2026 LensCraft Studio. All rights reserved.
+        </p>
+    </footer>
+    <!-- ======= END FOOTER ======= -->
+
+    <!-- Bootstrap JavaScript — needed for mobile menu and alerts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

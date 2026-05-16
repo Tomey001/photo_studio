@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+
+{% block title %}LensCraft Studio — Professional Photography{% endblock %}
+
+{% block content %}
+
+<!-- ===== HERO SECTION ===== -->
+<!-- This is the big banner at the top of the homepage -->
+<div class="hero-section rounded-3 mb-5">
+    <div class="container">
+        <i class="bi bi-camera2" style="font-size: 4rem; opacity: 0.8;"></i>
+        <h1>Professional Photography Studio</h1>
+        <p>Capture your most precious moments with our expert photographers.<br>
+           Book your session online in just a few clicks.</p>
+        <a href="{{ url_for('book') }}" class="btn btn-light btn-lg px-5 py-3 fw-bold">
+            <i class="bi bi-calendar-plus me-2"></i>Book an Appointment
+        </a>
+    </div>
+</div>
+
+<!-- ===== SERVICES SECTION ===== -->
+<h2 class="text-center mb-4 fw-bold">Our Photography Services</h2>
+<div class="row g-4 mb-5">
+
+    <div class="col-md-4">
+        <div class="card service-card h-100">
+            <div class="icon"><i class="bi bi-person-fill"></i></div>
+            <h5 class="fw-bold">Portrait Sessions</h5>
+            <p class="text-muted">Professional individual and family portrait photography in our fully equipped studio.</p>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card service-card h-100">
+            <div class="icon"><i class="bi bi-heart-fill"></i></div>
+            <h5 class="fw-bold">Wedding Photography</h5>
+            <p class="text-muted">Capturing the magic of your special day with timeless, elegant wedding photography.</p>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card service-card h-100">
+            <div class="icon"><i class="bi bi-briefcase-fill"></i></div>
+            <h5 class="fw-bold">Corporate Headshots</h5>
+            <p class="text-muted">Look your best professionally with polished corporate and LinkedIn profile photography.</p>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card service-card h-100">
+            <div class="icon"><i class="bi bi-balloon-heart-fill"></i></div>
+            <h5 class="fw-bold">Birthday & Anniversaries</h5>
+            <p class="text-muted">Celebrate life's milestones with vibrant event and birthday photography sessions.</p>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card service-card h-100">
+            <div class="icon"><i class="bi bi-bag-fill"></i></div>
+            <h5 class="fw-bold">Product Photography</h5>
+            <p class="text-muted">High-quality product images that make your business stand out online and in print.</p>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card service-card h-100">
+            <div class="icon"><i class="bi bi-mortarboard-fill"></i></div>
+            <h5 class="fw-bold">Graduation Photos</h5>
+            <p class="text-muted">Mark your academic achievement with memorable graduation photography sessions.</p>
+        </div>
+    </div>
+
+</div>
+
+<!-- ===== HOW IT WORKS SECTION ===== -->
+<div class="bg-white rounded-3 p-5 mb-5 shadow-sm">
+    <h2 class="text-center fw-bold mb-4">How It Works</h2>
+    <div class="row text-center g-4">
+        <div class="col-md-4">
+            <div class="rounded-circle bg-dark text-white d-inline-flex align-items-center justify-content-center mb-3"
+                 style="width:60px; height:60px; font-size:1.5rem; font-weight:700;">1</div>
+            <h5 class="fw-bold">Choose a Service</h5>
+            <p class="text-muted">Select the type of photography session that suits your needs.</p>
+        </div>
+        <div class="col-md-4">
+            <div class="rounded-circle bg-dark text-white d-inline-flex align-items-center justify-content-center mb-3"
+                 style="width:60px; height:60px; font-size:1.5rem; font-weight:700;">2</div>
+            <h5 class="fw-bold">Pick a Date & Time</h5>
+            <p class="text-muted">Select your preferred date and available time slot online.</p>
+        </div>
+        <div class="col-md-4">
+            <div class="rounded-circle bg-dark text-white d-inline-flex align-items-center justify-content-center mb-3"
+                 style="width:60px; height:60px; font-size:1.5rem; font-weight:700;">3</div>
+            <h5 class="fw-bold">Get Confirmation</h5>
+            <p class="text-muted">Receive an instant email confirmation with your booking details.</p>
+        </div>
+    </div>
+    <div class="text-center mt-4">
+        <a href="{{ url_for('book') }}" class="btn btn-dark btn-lg px-5">
+            <i class="bi bi-arrow-right-circle me-2"></i>Book Now
+        </a>
+    </div>
+</div>
+
+{% endblock %}

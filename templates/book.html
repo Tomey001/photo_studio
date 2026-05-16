@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+
+{% block title %}Book an Appointment — LensCraft Studio{% endblock %}
+
+{% block content %}
+
+<div class="row justify-content-center">
+    <div class="col-lg-7">
+
+        <h2 class="fw-bold mb-1 text-center">
+            <i class="bi bi-calendar-plus me-2"></i>Book an Appointment
+        </h2>
+        <p class="text-muted text-center mb-4">Fill in the form below and we will confirm your booking by email.</p>
+
+        <div class="booking-card">
+            <!-- The form posts to the /book route in Flask -->
+            <form method="POST" action="{{ url_for('book') }}">
+
+                <!-- Customer Name -->
+                <div class="mb-3">
+                    <label for="customer_name" class="form-label">Full Name</label>
+                    <input type="text" class="form-control" id="customer_name"
+                           name="customer_name" placeholder="e.g. Bless Daniel Tomey"
+                           required>
+                </div>
+
+                <!-- Email -->
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email Address</label>
+                    <input type="email" class="form-control" id="email"
+                           name="email" placeholder="e.g. bless@email.com"
+                           required>
+                </div>
+
+                <!-- Phone -->
+                <div class="mb-3">
+                    <label for="phone" class="form-label">Phone Number</label>
+                    <input type="tel" class="form-control" id="phone"
+                           name="phone" placeholder="e.g. 0244123456"
+                           required>
+                </div>
+
+                <!-- Service Type -->
+                <div class="mb-3">
+                    <label for="service" class="form-label">Photography Service</label>
+                    <select class="form-select" id="service" name="service" required>
+                        <option value="" disabled selected>-- Select a service --</option>
+                        <option value="Portrait Session">Portrait Session</option>
+                        <option value="Wedding Photography">Wedding Photography</option>
+                        <option value="Corporate Headshots">Corporate Headshots</option>
+                        <option value="Birthday & Anniversaries">Birthday & Anniversaries</option>
+                        <option value="Product Photography">Product Photography</option>
+                        <option value="Graduation Photos">Graduation Photos</option>
+                    </select>
+                </div>
+
+                <!-- Date and Time (side by side) -->
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="date" class="form-label">Preferred Date</label>
+                        <input type="date" class="form-control" id="date"
+                               name="date" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="time" class="form-label">Preferred Time</label>
+                        <select class="form-select" id="time" name="time" required>
+                            <option value="" disabled selected>-- Select time --</option>
+                            <option value="09:00">09:00 AM</option>
+                            <option value="10:00">10:00 AM</option>
+                            <option value="11:00">11:00 AM</option>
+                            <option value="12:00">12:00 PM</option>
+                            <option value="13:00">01:00 PM</option>
+                            <option value="14:00">02:00 PM</option>
+                            <option value="15:00">03:00 PM</option>
+                            <option value="16:00">04:00 PM</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Additional Notes -->
+                <div class="mb-4">
+                    <label for="notes" class="form-label">Additional Notes <span class="text-muted">(optional)</span></label>
+                    <textarea class="form-control" id="notes" name="notes"
+                              rows="3" placeholder="Any special requests or details..."></textarea>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" class="btn btn-book">
+                    <i class="bi bi-send-fill me-2"></i>Confirm Booking
+                </button>
+
+            </form>
+        </div>
+
+    </div>
+</div>
+
+<!-- Script to prevent selecting past dates -->
+<script>
+    // Get today's date in YYYY-MM-DD format
+    const today = new Date().toISOString().split('T')[0];
+    // Set the minimum date on the date picker to today
+    document.getElementById('date').setAttribute('min', today);
+</script>
+
+{% endblock %}

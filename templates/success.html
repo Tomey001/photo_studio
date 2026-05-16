@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+
+{% block title %}Booking Confirmed — LensCraft Studio{% endblock %}
+
+{% block content %}
+
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="success-card">
+
+            <!-- Big green checkmark icon -->
+            <div class="success-icon mb-3">
+                <i class="bi bi-check-circle-fill"></i>
+            </div>
+
+            <h2 class="fw-bold text-success mb-2">Booking Confirmed!</h2>
+            <p class="text-muted mb-4">
+                Thank you, <strong>{{ name }}</strong>! Your appointment request has been received.
+                A confirmation email has been sent to <strong>{{ email }}</strong>.
+            </p>
+
+            <!-- Booking summary box -->
+            <div class="bg-light rounded-3 p-4 mb-4 text-start">
+                <h5 class="fw-bold mb-3">
+                    <i class="bi bi-receipt me-2"></i>Booking Summary
+                </h5>
+                <table class="table table-borderless mb-0">
+                    <tr>
+                        <td class="text-muted fw-bold" width="40%">Service:</td>
+                        <td>{{ service }}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted fw-bold">Date:</td>
+                        <td>{{ date }}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted fw-bold">Time:</td>
+                        <td>{{ time }}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted fw-bold">Status:</td>
+                        <td><span class="badge badge-pending status-badge">Pending Approval</span></td>
+                    </tr>
+                </table>
+            </div>
+
+            <p class="text-muted small mb-4">
+                <i class="bi bi-info-circle me-1"></i>
+                Your booking is currently <strong>pending</strong>. 
+                Our team will review and approve it shortly. 
+                You will receive another email once approved.
+            </p>
+
+            <a href="{{ url_for('index') }}" class="btn btn-dark px-4">
+                <i class="bi bi-house me-2"></i>Back to Homepage
+            </a>
+
+        </div>
+    </div>
+</div>
+
+{% endblock %}
