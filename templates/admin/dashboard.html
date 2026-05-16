@@ -73,6 +73,17 @@
                     <td>
                         <strong>{{ appt.customer_name }}</strong><br>
                         <small class="text-muted">{{ appt.phone }}</small>
+                        <div class="mt-2">
+                            {% if appt.notes and appt.notes.strip() %}
+                                <div class="text-muted" style="font-size: 0.9rem;">
+                                    <strong>Note:</strong> {{ appt.notes }}
+                                </div>
+                            {% else %}
+                                <div class="text-muted" style="font-size: 0.9rem;">
+                                    <em>No additional message/details provided.</em>
+                                </div>
+                            {% endif %}
+                        </div>
                     </td>
                     <td>{{ appt.email }}</td>
                     <td>{{ appt.service }}</td>

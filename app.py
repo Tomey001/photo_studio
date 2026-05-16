@@ -73,10 +73,22 @@ def send_confirmation_email(appointment):
 
         msg = Message(
             subject='Booking Received — LensCraft Studio',
-            recipients=[appointment.email]
+            recipients=[appointment.email],
+            sender=app.config.get('MAIL_DEFAULT_SENDER') or app.config.get('MAIL_USERNAME')
+        )
+        print(f"[MAIL DEBUG] From: {msg.sender} To: {appointment.email}")
+
+
+        # Optional plain-text fallback (some email providers are picky)
+        msg.body = (
+            f"Dear {appointment.customer_name},\n\n"
+            "Thank you for booking with LensCraft Studio! "
+            "Your appointment request has been received and is currently pending approval.\n\n"
+            "Regards, LensCraft Studio\n"
         )
         msg.html = f"""
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
+
             <div style="background-color: #0f3460; padding: 30px; text-align: center;">
                 <h1 style="color: white; margin: 0;">📷 LensCraft Studio</h1>
             </div>
@@ -138,9 +150,13 @@ def send_confirmation_email(appointment):
         """
         mail.send(msg)
         print(f"Confirmation email sent to {appointment.email}")
+        return True
+
+
 
     except Exception as e:
-        print(f"Confirmation email failed: {e}")
+        print(f"Confirmation email failed: {type(e).__name__}: {e}")
+
 
 
 # ============================================================
@@ -397,27 +413,23 @@ def book():
             time=time
         )
 
-        # ── Step 6: Send confirmation email in background (best-effort)
-        # Also notify the admin/studio owner that a new appointment was booked.
+        # ── Step 6: Send confirmation email
+        # Send confirmation email.
+        # Note: the booking page should always render; email errors should not block it.
         try:
-            threading.Thread(
-                target=send_confirmation_email,
-                args=(new_appointment,),
-                daemon=True
-            ).start()
-
-            # Send admin notification email in a separate background thread
-            threading.Thread(
-                target=send_admin_new_appointment_email,
-                args=(new_appointment,),
-                daemon=True
-            ).start()
+            send_confirmation_email(new_appointment)
         except Exception as e:
-            # Never block booking confirmation page
-            print(f"Background email start failed: {e}")
+            print(f"Confirmation email send failed (sync): {type(e).__name__}: {e}")
 
+        # Send admin notification email in a separate background thread (best-effort)
+        threading.Thread(
+            target=send_admin_new_appointment_email,
+            args=(new_appointment,),
+            daemon=True
+        ).start()
 
         return response
+
 
 
     # GET request — show the empty booking form
