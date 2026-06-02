@@ -77,6 +77,8 @@
                             <option value="15:00">03:00 PM</option>
                             <option value="16:00">04:00 PM</option>
                         </select>
+                        <!-- Small helper text that updates as we check availability -->
+                        <div id="availabilityHint" class="form-text mt-1"></div>
                     </div>
                 </div>
 
@@ -98,12 +100,72 @@
     </div>
 </div>
 
-<!-- Script to prevent selecting past dates -->
+<!-- ===== Feature 3: Real-time availability ===== -->
 <script>
-    // Get today's date in YYYY-MM-DD format
+    const dateInput = document.getElementById('date');
+    const timeSelect = document.getElementById('time');
+    const hint = document.getElementById('availabilityHint');
+
+    // 1) Prevent selecting past dates (this was here before).
     const today = new Date().toISOString().split('T')[0];
-    // Set the minimum date on the date picker to today
-    document.getElementById('date').setAttribute('min', today);
+    dateInput.setAttribute('min', today);
+
+    // 2) Remember each time option's original label so we can restore it
+    //    when the customer switches to a different date.
+    const originalLabels = {};
+    for (const opt of timeSelect.options) {
+        originalLabels[opt.value] = opt.textContent;
+    }
+
+    // 3) Whenever the date changes, ask the server which times are taken.
+    dateInput.addEventListener('change', updateAvailability);
+
+    async function updateAvailability() {
+        const chosenDate = dateInput.value;
+
+        // Reset every real slot back to normal (enabled + original label).
+        for (const opt of timeSelect.options) {
+            if (opt.value === "") continue;   // skip the "-- Select time --" placeholder
+            opt.disabled = false;
+            opt.textContent = originalLabels[opt.value];
+        }
+        hint.textContent = "";
+        hint.className = "form-text mt-1";
+
+        if (!chosenDate) return;
+
+        try {
+            // Ask our backend information desk for the booked times on this date.
+            const res = await fetch(`/api/booked-times?date=${chosenDate}`);
+            const data = await res.json();
+            const booked = data.booked || [];
+
+            // Grey out (disable) any slot that is already taken.
+            for (const opt of timeSelect.options) {
+                if (opt.value !== "" && booked.includes(opt.value)) {
+                    opt.disabled = true;
+                    opt.textContent = originalLabels[opt.value] + " (Booked)";
+                    // If the customer had picked a slot that is now booked, clear it.
+                    if (timeSelect.value === opt.value) {
+                        timeSelect.value = "";
+                    }
+                }
+            }
+
+            // Friendly hint under the dropdown.
+            if (booked.length === 0) {
+                hint.textContent = "All time slots are available on this date.";
+                hint.className = "form-text mt-1 text-success";
+            } else {
+                hint.textContent = booked.length + " slot(s) already booked on this date are greyed out.";
+                hint.className = "form-text mt-1 text-warning";
+            }
+        } catch (err) {
+            // If the check fails (e.g. no connection), we simply leave all slots
+            // enabled. The server-side double-booking check is still the real guard.
+            console.error('Availability check failed:', err);
+        }
+    }
 </script>
 
 {% endblock %}

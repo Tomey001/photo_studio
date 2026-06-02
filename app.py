@@ -1,13 +1,27 @@
-# app.py — Flask backend (appointments + admin + email feedback)
+# app.py — Flask backend (appointments + admin + email feedback + reminders)
 
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_mail import Mail, Message
 from werkzeug.security import check_password_hash
 from config import Config
-from datetime import datetime
+from datetime import datetime, timedelta, date
 from functools import wraps
+from collections import Counter
 import threading
+import os
+import atexit
+import secrets
+
+# NEW (Feature 1): the background "clock" that runs the reminder check every hour.
+from apscheduler.schedulers.background import BackgroundScheduler
+
+# NEW (Feature 5): Twilio for WhatsApp. Guarded so the app still runs even if the
+# package isn't installed yet — WhatsApp simply gets skipped in that case.
+try:
+    from twilio.rest import Client as TwilioClient
+except Exception:
+    TwilioClient = None
 
 # Single background worker for all email operations
 # (keeps customer/admin requests responsive and ensures Flask-Mail has app context)
@@ -34,12 +48,34 @@ class Appointment(db.Model):
     status = db.Column(db.String(20), nullable=False, default="pending")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # NEW (Feature 1): tracks whether the 24-hour reminder has already been
+    # sent for this appointment, so the customer is never reminded twice.
+    reminder_sent = db.Column(db.Boolean, nullable=False, default=False)
+
+    # NEW (Feature 4): review system.
+    # review_token = unguessable code used in the customer's personal review link.
+    # reviewed = True once they have submitted, so they cannot review twice.
+    review_token = db.Column(db.String(64), nullable=True)
+    reviewed = db.Column(db.Boolean, nullable=False, default=False)
+
 class Admin(db.Model):
     __tablename__ = "admin"
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
+
+# NEW (Feature 4): one row per customer review.
+class Review(db.Model):
+    __tablename__ = "reviews"
+
+    id = db.Column(db.Integer, primary_key=True)
+    appointment_id = db.Column(db.Integer, db.ForeignKey("appointments.id"), nullable=False)
+    customer_name = db.Column(db.String(100), nullable=False)
+    service = db.Column(db.String(50), nullable=False)
+    rating = db.Column(db.Integer, nullable=False)   # 1 to 5 stars
+    comment = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 def login_required(f):
     @wraps(f)
@@ -447,6 +483,8 @@ def send_rejection_email(appointment: Appointment):
         recipients=[appointment.email],
     )
 
+    # NOTE: removed a stray "<" character that was sitting on its own line here
+    # in the previous version (it was malformed HTML left over from an edit).
     msg.html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
       <div style="background-color: #0f3460; padding: 30px; text-align: center;">
@@ -457,7 +495,6 @@ def send_rejection_email(appointment: Appointment):
         <p>Dear <strong>{appointment.customer_name}</strong>,</p>
         <p>Thank you for booking with LensCraft Studio. After review by our team, we're unable to approve your requested appointment at this time.</p>
         <p style="color: #666; font-size: 0.9rem;">If you'd like to discuss alternative options, please contact our studio on 0540750090.</p>
-        <
       </div>
       <div style="background-color: #0f3460; padding: 15px; text-align: center;">
         <p style="color: white; margin: 0; font-size: 0.85rem;">© 2026 LensCraft Studio. All rights reserved.</p>
@@ -467,13 +504,474 @@ def send_rejection_email(appointment: Appointment):
 
     _send_best_effort(msg)
 
+def send_reminder_email(appointment: Appointment):
+    """
+    NEW (Feature 1): Sent automatically about 24 hours before an APPROVED
+    appointment, to reduce no-shows. Returns True if the email was sent.
+    """
+    sender = app.config.get("MAIL_DEFAULT_SENDER") or app.config.get("MAIL_USERNAME")
+    msg = Message(
+        subject="Reminder: Your Appointment Is Tomorrow — LensCraft Studio",
+        recipients=[appointment.email],
+        sender=sender,
+    )
+    if not sender:
+        print("[MAIL] WARNING: No sender configured for reminder email.")
+
+    msg.body = (
+        f"Dear {appointment.customer_name},\n\n"
+        "This is a friendly reminder that your appointment with LensCraft Studio is TOMORROW.\n\n"
+        f"Service:\t{appointment.service}\n"
+        f"Date:\t{appointment.date}\n"
+        f"Time:\t{appointment.time}\n\n"
+        "Please arrive 10 minutes early. We look forward to seeing you!\n\n"
+        "Regards,\nLensCraft Studio\n"
+    )
+
+    # Dark-themed HTML, consistent with the confirmation/approval emails,
+    # but with a blue "reminder" banner instead of the green approval note.
+    msg.html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+    <body style="margin:0;padding:0;background-color:#f0f0f0;font-family:Arial,sans-serif;">
+
+      <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f0f0;padding:30px 0;">
+        <tr><td align="center">
+
+          <table width="600" cellpadding="0" cellspacing="0"
+                 style="max-width:600px;width:100%;border-radius:12px;overflow:hidden;
+                        box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+
+            <!-- HEADER -->
+            <tr>
+              <td style="background-color:#c5cae9;padding:28px 30px;text-align:center;">
+                <p style="margin:0;font-size:1.5rem;font-weight:bold;color:#1a1a2e;letter-spacing:0.5px;">
+                  📷 LensCraft Studio
+                </p>
+              </td>
+            </tr>
+
+            <!-- BODY -->
+            <tr>
+              <td style="background-color:#1a1a2e;padding:32px 30px;">
+
+                <h2 style="color:#8fb8e0;margin:0 0 16px 0;font-size:1.2rem;">
+                  ⏰ Appointment Reminder
+                </h2>
+
+                <p style="color:#ffffff;font-size:1rem;margin:0 0 12px 0;">
+                  Dear <strong style="color:#ffffff;">{appointment.customer_name}</strong>,
+                </p>
+
+                <p style="color:#cccccc;font-size:0.95rem;margin:0 0 24px 0;line-height:1.6;">
+                  This is a friendly reminder that your appointment with
+                  LensCraft Studio is <strong style="color:#8fb8e0;">tomorrow</strong>.
+                  We can't wait to see you!
+                </p>
+
+                <!-- Details card -->
+                <div style="background-color:#2a2a3e;border-left:4px solid #28a745;
+                            border-radius:8px;padding:20px 24px;margin-bottom:20px;">
+                  <p style="margin:0 0 12px 0;font-size:1rem;font-weight:bold;
+                             color:#ffffff;padding-bottom:10px;
+                             border-bottom:2px solid #28a745;">
+                    Your Confirmed Appointment
+                  </p>
+                  <table width="100%" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="padding:8px 0;color:#888888;font-size:0.9rem;width:40%;">Service:</td>
+                      <td style="padding:8px 0;color:#ffffff;font-weight:bold;font-size:0.9rem;">
+                        {appointment.service}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:8px 0;color:#888888;font-size:0.9rem;">Date:</td>
+                      <td style="padding:8px 0;color:#ffffff;font-weight:bold;font-size:0.9rem;">
+                        {appointment.date}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:8px 0;color:#888888;font-size:0.9rem;">Time:</td>
+                      <td style="padding:8px 0;color:#ffffff;font-weight:bold;font-size:0.9rem;">
+                        {appointment.time}
+                      </td>
+                    </tr>
+                  </table>
+                </div>
+
+                <!-- Blue reminder banner -->
+                <div style="background-color:#15263b;border-radius:8px;
+                            padding:16px 20px;margin-bottom:20px;">
+                  <p style="margin:0 0 8px 0;font-size:0.95rem;">
+                    <span style="font-size:1rem;">📌</span>
+                    <strong style="color:#8fb8e0;"> Before you come:</strong>
+                  </p>
+                  <p style="margin:0;color:#a9c7e8;font-size:0.9rem;line-height:1.6;">
+                    Please arrive 10 minutes early. Bring any props or outfits
+                    you have in mind for your session.
+                  </p>
+                </div>
+
+                <p style="color:#aaaaaa;font-size:0.88rem;margin:0;line-height:1.5;">
+                  Need to reschedule? Please contact us on 0540750090 as soon as possible.
+                </p>
+
+              </td>
+            </tr>
+
+            <!-- FOOTER -->
+            <tr>
+              <td style="background-color:#c5cae9;padding:16px 30px;text-align:center;">
+                <p style="margin:0;font-size:0.82rem;color:#1a1a2e;">
+                  © 2026 LensCraft Studio. All rights reserved.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+
+        </td></tr>
+      </table>
+
+    </body>
+    </html>
+    """
+
+    return _send_best_effort(msg)
+
+
+def send_review_request_email(appointment: Appointment):
+    """
+    NEW (Feature 4): Sent when an appointment is marked Completed, inviting
+    the customer to leave a star rating + review via a private one-time link.
+    """
+    base_url = (app.config.get("BASE_URL") or "http://127.0.0.1:5000").rstrip("/")
+    review_url = f"{base_url}/review/{appointment.review_token}"
+
+    sender = app.config.get("MAIL_DEFAULT_SENDER") or app.config.get("MAIL_USERNAME")
+    msg = Message(
+        subject="How was your experience? — LensCraft Studio",
+        recipients=[appointment.email],
+        sender=sender,
+    )
+    if not sender:
+        print("[MAIL] WARNING: No sender configured for review request email.")
+
+    msg.body = (
+        f"Dear {appointment.customer_name},\n\n"
+        "Thank you for choosing LensCraft Studio! We'd love to hear about your experience.\n\n"
+        f"Please leave a quick review here:\n{review_url}\n\n"
+        "It only takes a few seconds and helps us a lot.\n\n"
+        "Regards,\nLensCraft Studio\n"
+    )
+
+    msg.html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+    <body style="margin:0;padding:0;background-color:#f0f0f0;font-family:Arial,sans-serif;">
+
+      <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f0f0;padding:30px 0;">
+        <tr><td align="center">
+
+          <table width="600" cellpadding="0" cellspacing="0"
+                 style="max-width:600px;width:100%;border-radius:12px;overflow:hidden;
+                        box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+
+            <!-- HEADER -->
+            <tr>
+              <td style="background-color:#c5cae9;padding:28px 30px;text-align:center;">
+                <p style="margin:0;font-size:1.5rem;font-weight:bold;color:#1a1a2e;letter-spacing:0.5px;">
+                  📷 LensCraft Studio
+                </p>
+              </td>
+            </tr>
+
+            <!-- BODY -->
+            <tr>
+              <td style="background-color:#1a1a2e;padding:32px 30px;text-align:center;">
+
+                <h2 style="color:#ffc107;margin:0 0 16px 0;font-size:1.2rem;">
+                  ⭐ How did we do?
+                </h2>
+
+                <p style="color:#ffffff;font-size:1rem;margin:0 0 12px 0;text-align:left;">
+                  Dear <strong style="color:#ffffff;">{appointment.customer_name}</strong>,
+                </p>
+
+                <p style="color:#cccccc;font-size:0.95rem;margin:0 0 24px 0;line-height:1.6;text-align:left;">
+                  Thank you for choosing LensCraft Studio for your
+                  <strong style="color:#ffffff;">{appointment.service}</strong> session.
+                  We'd love to hear how it went! It only takes a few seconds and
+                  helps other customers find us.
+                </p>
+
+                <!-- Review button -->
+                <a href="{review_url}"
+                   style="display:inline-block;background-color:#28a745;color:#ffffff;
+                          text-decoration:none;font-weight:bold;font-size:1rem;
+                          padding:14px 32px;border-radius:8px;margin-bottom:20px;">
+                  ⭐ Leave a Review
+                </a>
+
+                <p style="color:#888888;font-size:0.82rem;margin:18px 0 0 0;line-height:1.5;text-align:left;">
+                  If the button does not work, copy and paste this link into your browser:<br>
+                  <span style="color:#8fb8e0;">{review_url}</span>
+                </p>
+
+              </td>
+            </tr>
+
+            <!-- FOOTER -->
+            <tr>
+              <td style="background-color:#c5cae9;padding:16px 30px;text-align:center;">
+                <p style="margin:0;font-size:0.82rem;color:#1a1a2e;">
+                  © 2026 LensCraft Studio. All rights reserved.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+
+        </td></tr>
+      </table>
+
+    </body>
+    </html>
+    """
+
+    return _send_best_effort(msg)
+
+
+# =====================
+# REMINDER CHECK + SCHEDULER (Feature 1)
+# =====================
+
+def check_and_send_reminders():
+    """
+    Looks for APPROVED appointments scheduled for TOMORROW that have not yet
+    been reminded, emails each customer, and marks reminder_sent = True so
+    nobody is reminded twice.
+
+    Runs automatically every hour, and can also be triggered manually for
+    testing via /admin/test-reminders. Returns how many reminders were sent.
+    """
+    sent_count = 0
+    # The scheduler runs this in a background thread, so we open an app context
+    # ourselves to make sure database + Flask-Mail work correctly here.
+    with app.app_context():
+        # Tomorrow's date as "YYYY-MM-DD" — the same format the booking form stores.
+        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+
+        due = (
+            Appointment.query
+            .filter_by(date=tomorrow, status="approved", reminder_sent=False)
+            .all()
+        )
+        print(f"[REMINDER] checking for {tomorrow}: {len(due)} appointment(s) need a reminder")
+
+        for appointment in due:
+            ok = send_reminder_email(appointment)
+            if ok:
+                appointment.reminder_sent = True
+                db.session.commit()
+                sent_count += 1
+            else:
+                # Leave reminder_sent = False so we try again on the next hourly run.
+                print(f"[REMINDER] email failed for appointment #{appointment.id}; will retry next run")
+
+    return sent_count
+
+
+def start_scheduler():
+    """Starts the background clock that runs check_and_send_reminders() hourly."""
+    scheduler = BackgroundScheduler(daemon=True)
+    scheduler.add_job(
+        func=check_and_send_reminders,
+        trigger="interval",
+        hours=1,
+        id="hourly_reminder_check",
+        replace_existing=True,
+    )
+    scheduler.start()
+    print("[SCHEDULER] reminder scheduler started (runs every hour).")
+    # Shut the scheduler down cleanly when the app stops.
+    atexit.register(lambda: scheduler.shutdown(wait=False))
+
+
+# =====================
+# WHATSAPP HELPERS (Feature 5)
+# =====================
+
+def _to_whatsapp_number(raw_phone):
+    """
+    Convert a phone number into WhatsApp / E.164 form. Examples:
+        '0244123456'   -> 'whatsapp:+233244123456'
+        '233244123456' -> 'whatsapp:+233244123456'
+        '+233244123456'-> 'whatsapp:+233244123456'
+    Returns None if there are no digits to work with.
+    The default country code (233 = Ghana) comes from config.
+    """
+    if not raw_phone:
+        return None
+
+    cc = str(app.config.get("DEFAULT_COUNTRY_CODE", "233"))
+    raw = raw_phone.strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        return None
+
+    if raw.startswith("+"):
+        e164 = "+" + digits
+    elif digits.startswith("00"):
+        e164 = "+" + digits[2:]
+    elif digits.startswith("0"):
+        e164 = "+" + cc + digits[1:]
+    elif digits.startswith(cc):
+        e164 = "+" + digits
+    else:
+        e164 = "+" + cc + digits
+
+    return "whatsapp:" + e164
+
+
+def send_whatsapp(to_phone, body):
+    """
+    Best-effort WhatsApp send via the Twilio Sandbox. Like our emails, this
+    NEVER crashes the app — if anything is missing or fails, we just log it
+    and move on. Returns True only if Twilio accepted the message.
+    """
+    if TwilioClient is None:
+        print("[WA] twilio package not installed; skipping WhatsApp.")
+        return False
+
+    sid = app.config.get("TWILIO_ACCOUNT_SID")
+    token = app.config.get("TWILIO_AUTH_TOKEN")
+    from_wa = app.config.get("TWILIO_WHATSAPP_FROM")
+
+    if not (sid and token and from_wa):
+        print("[WA] Twilio not configured (SID / token / from missing); skipping WhatsApp.")
+        return False
+
+    to_wa = _to_whatsapp_number(to_phone)
+    if not to_wa:
+        print(f"[WA] could not format phone '{to_phone}'; skipping WhatsApp.")
+        return False
+
+    try:
+        client = TwilioClient(sid, token)
+        message = client.messages.create(from_=from_wa, to=to_wa, body=body)
+        print(f"[WA] sent to {to_wa} sid={message.sid}")
+        return True
+    except Exception as e:
+        print(f"[WA] send failed: {type(e).__name__}: {e}")
+        return False
+
+
 # =====================
 # CUSTOMER ROUTES
 # =====================
 
+def _list_gallery_images():
+    """Return the filenames of all images dropped into static/img/gallery/."""
+    images = []
+    gallery_dir = os.path.join(app.static_folder, "img", "gallery")
+    if os.path.isdir(gallery_dir):
+        for filename in sorted(os.listdir(gallery_dir)):
+            if filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".gif")):
+                images.append(filename)
+    return images
+
+
 @app.route("/")
 def index():
-    return render_template("index.html")
+    # Feature 4C: load recent reviews + the average rating for the homepage.
+    reviews = Review.query.order_by(Review.created_at.desc()).limit(6).all()
+    review_count = Review.query.count()
+    if review_count:
+        avg = db.session.query(db.func.avg(Review.rating)).scalar() or 0
+        average_rating = round(avg, 1)
+        full_stars = int(round(avg))
+    else:
+        average_rating = 0
+        full_stars = 0
+
+    # Service Gallery: show a preview of the first 8 photos on the homepage.
+    # gallery_total lets the page decide whether to show a "View full gallery" link.
+    all_gallery = _list_gallery_images()
+    gallery_images = all_gallery[:8]
+    gallery_total = len(all_gallery)
+
+    return render_template(
+        "index.html",
+        reviews=reviews,
+        review_count=review_count,
+        average_rating=average_rating,
+        full_stars=full_stars,
+        gallery_images=gallery_images,
+        gallery_total=gallery_total,
+    )
+
+@app.route("/gallery")
+def gallery():
+    # The full gallery page — shows every photo in the folder.
+    images = _list_gallery_images()
+    return render_template("gallery.html", gallery_images=images, gallery_total=len(images))
+
+@app.route("/reviews")
+def all_reviews():
+    # Bonus: a paginated "all reviews" page.
+    # ?page=N comes from the Previous/Next links; defaults to page 1.
+    page = request.args.get("page", 1, type=int)
+
+    # .paginate() gives us just this page's reviews (9 per page) plus all the
+    # info we need to draw the page links (has_next, pages, etc.).
+    pagination = (
+        Review.query.order_by(Review.created_at.desc())
+        .paginate(page=page, per_page=9, error_out=False)
+    )
+
+    review_count = Review.query.count()
+    if review_count:
+        avg = db.session.query(db.func.avg(Review.rating)).scalar() or 0
+        average_rating = round(avg, 1)
+        full_stars = int(round(avg))
+    else:
+        average_rating = 0
+        full_stars = 0
+
+    return render_template(
+        "all_reviews.html",
+        pagination=pagination,
+        reviews=pagination.items,
+        review_count=review_count,
+        average_rating=average_rating,
+        full_stars=full_stars,
+    )
+
+@app.route("/api/booked-times")
+def booked_times():
+    """
+    Feature 3: returns, as JSON, the list of time slots already taken on a
+    given date. The booking page calls this to grey out unavailable times
+    in real time.
+
+    A slot counts as taken if it is "pending" or "approved" — exactly the
+    SAME rule used by the double-booking check below, so the calendar and
+    the safety check can never disagree.
+    """
+    date_value = request.args.get("date", "").strip()
+    if not date_value:
+        return jsonify({"date": "", "booked": []})
+
+    taken = (
+        Appointment.query.filter_by(date=date_value)
+        .filter(Appointment.status.in_(["pending", "approved"]))
+        .all()
+    )
+    booked_list = [a.time for a in taken]
+    return jsonify({"date": date_value, "booked": booked_list})
 
 @app.route("/book", methods=["GET", "POST"])
 def book():
@@ -527,25 +1025,46 @@ def book():
             time=time,
         )
 
-        # Send all emails in one background thread and return immediately.
-        def _email_worker(appointment: Appointment, action: str):
-            # Ensure Flask-Mail can access app config in this thread
+        # Send the booking notifications in the background so the page returns fast.
+        # We re-load the appointment inside the thread (fresh + safe), and we run
+        # EACH notification in its own try block so one failing can never block
+        # the others. Email and WhatsApp are fully independent.
+        appt_id = new_appointment.id
+
+        def _booking_notify_worker(appointment_id):
             with app.app_context():
                 with _EMAIL_THREAD_LOCK:
+                    appointment = Appointment.query.get(appointment_id)
+                    if not appointment:
+                        print(f"[NOTIFY] appointment {appointment_id} not found; skipping.")
+                        return
+
+                    # 1) Customer confirmation email
                     try:
-                        if action == "new_booking":
-                            send_confirmation_email(appointment)
-                            send_admin_new_appointment_email(appointment)
-                        elif action == "admin_update_approved":
-                            send_approval_email(appointment)
-                        elif action == "admin_update_rejected":
-                            send_rejection_email(appointment)
+                        send_confirmation_email(appointment)
                     except Exception as e:
-                        print(f"[MAIL] background worker failed: {type(e).__name__}: {e}")
+                        print(f"[MAIL] confirmation email failed: {type(e).__name__}: {e}")
+
+                    # 2) Admin notification email
+                    try:
+                        send_admin_new_appointment_email(appointment)
+                    except Exception as e:
+                        print(f"[MAIL] admin email failed: {type(e).__name__}: {e}")
+
+                    # 3) Customer WhatsApp confirmation
+                    try:
+                        send_whatsapp(
+                            appointment.phone,
+                            f"Hello {appointment.customer_name}! LensCraft Studio has received your "
+                            f"booking for {appointment.service} on {appointment.date} at {appointment.time}. "
+                            f"Status: pending approval. We'll update you soon!"
+                        )
+                    except Exception as e:
+                        print(f"[WA] booking whatsapp failed: {type(e).__name__}: {e}")
 
         threading.Thread(
-            target=_email_worker,
-            args=(new_appointment, "new_booking"),
+            target=_booking_notify_worker,
+            args=(appt_id,),
             daemon=True,
         ).start()
 
@@ -553,6 +1072,45 @@ def book():
 
 
     return render_template("book.html")
+
+# NEW (Feature 4): the customer review page.
+@app.route("/review/<token>", methods=["GET", "POST"])
+def review(token):
+    # Find the appointment this private link belongs to.
+    appointment = Appointment.query.filter_by(review_token=token).first()
+
+    # Link doesn't match any appointment.
+    if not appointment:
+        return render_template("review.html", state="invalid")
+
+    # Already reviewed — don't allow a second one.
+    if appointment.reviewed:
+        return render_template("review.html", state="already")
+
+    if request.method == "POST":
+        rating = request.form.get("rating", "").strip()
+        comment = request.form.get("comment", "").strip()
+
+        # Rating must be a whole number from 1 to 5.
+        if rating not in ["1", "2", "3", "4", "5"]:
+            flash("Please tap a star to rate your experience (1 to 5).", "danger")
+            return redirect(url_for("review", token=token))
+
+        new_review = Review(
+            appointment_id=appointment.id,
+            customer_name=appointment.customer_name,
+            service=appointment.service,
+            rating=int(rating),
+            comment=comment,
+        )
+        db.session.add(new_review)
+        appointment.reviewed = True   # lock this link so it can't be reused
+        db.session.commit()
+
+        return render_template("review.html", state="thanks", appointment=appointment)
+
+    # GET — show the empty review form.
+    return render_template("review.html", state="form", appointment=appointment)
 
 # =====================
 # ADMIN ROUTES
@@ -588,6 +1146,37 @@ def admin_dashboard():
     pending = sum(1 for a in appointments if a.status == "pending")
     approved = sum(1 for a in appointments if a.status == "approved")
     completed = sum(1 for a in appointments if a.status == "completed")
+    rejected = sum(1 for a in appointments if a.status == "rejected")
+
+    # ===== Feature 2: Analytics =====
+
+    # 1) Bookings received per month (based on when the booking was made).
+    #    We group by "YYYY-MM" then keep the most recent 6 months.
+    month_counter = Counter()
+    for a in appointments:
+        if a.created_at:
+            month_counter[a.created_at.strftime("%Y-%m")] += 1
+    sorted_months = sorted(month_counter.keys())[-6:]
+    month_labels = [datetime.strptime(m, "%Y-%m").strftime("%b %Y") for m in sorted_months]
+    month_values = [month_counter[m] for m in sorted_months]
+
+    # 2) Most popular services (counted from the bookings).
+    service_counter = Counter(a.service for a in appointments if a.service)
+    popular = service_counter.most_common()
+    service_labels = [name for name, _ in popular]
+    service_values = [count for _, count in popular]
+
+    # 3) Status breakdown for the status chart.
+    status_labels = ["Pending", "Approved", "Completed", "Rejected"]
+    status_values = [pending, approved, completed, rejected]
+
+    # 4) Approval rate — of all DECIDED bookings, how many were accepted.
+    decided = approved + completed + rejected
+    approval_rate = round((approved + completed) / decided * 100) if decided else 0
+
+    # 5) Busiest time slot — the most frequently booked time.
+    time_counter = Counter(a.time for a in appointments if a.time)
+    busiest_time = time_counter.most_common(1)[0][0] if time_counter else "—"
 
     return render_template(
         "admin/dashboard.html",
@@ -596,6 +1185,15 @@ def admin_dashboard():
         pending=pending,
         approved=approved,
         completed=completed,
+        rejected=rejected,
+        approval_rate=approval_rate,
+        busiest_time=busiest_time,
+        month_labels=month_labels,
+        month_values=month_values,
+        service_labels=service_labels,
+        service_values=service_values,
+        status_labels=status_labels,
+        status_values=status_values,
     )
 
 @app.route("/admin/update/<int:id>/<status>")
@@ -620,6 +1218,12 @@ def update_status(id, status):
                     try:
                         if action == "admin_update_approved":
                             send_approval_email(appointment)
+                            send_whatsapp(
+                                appointment.phone,
+                                f"Good news {appointment.customer_name}! Your LensCraft Studio booking for "
+                                f"{appointment.service} on {appointment.date} at {appointment.time} has been "
+                                f"APPROVED. Please arrive 10 minutes early. See you soon!"
+                            )
                     except Exception as e:
                         print(f"[MAIL] background worker failed: {type(e).__name__}: {e}")
 
@@ -641,6 +1245,12 @@ def update_status(id, status):
                     try:
                         if action == "admin_update_rejected":
                             send_rejection_email(appointment)
+                            send_whatsapp(
+                                appointment.phone,
+                                f"Hello {appointment.customer_name}, regarding your LensCraft Studio booking for "
+                                f"{appointment.service} on {appointment.date} at {appointment.time}: unfortunately "
+                                f"we could not approve it at this time. Please contact us on 0540750090 for options."
+                            )
                     except Exception as e:
                         print(f"[MAIL] background worker failed: {type(e).__name__}: {e}")
 
@@ -652,6 +1262,39 @@ def update_status(id, status):
 
         flash(
             f"Appointment #{id} for {appointment.customer_name} has been rejected. A feedback email has been sent to {appointment.email}.",
+            "success",
+        )
+
+    elif status == "completed":
+        # Generate a one-time review token if this appointment doesn't have one yet.
+        if not appointment.review_token:
+            appointment.review_token = secrets.token_urlsafe(24)
+            db.session.commit()
+
+        # Send the review-request email in the background.
+        # We pass the id and re-load the appointment inside the thread so the
+        # database object is always fresh and safe to use.
+        appt_id = appointment.id
+
+        def _review_email_worker(appointment_id):
+            with app.app_context():
+                with _EMAIL_THREAD_LOCK:
+                    try:
+                        appt = Appointment.query.get(appointment_id)
+                        if appt:
+                            send_review_request_email(appt)
+                    except Exception as e:
+                        print(f"[MAIL] review email worker failed: {type(e).__name__}: {e}")
+
+        threading.Thread(
+            target=_review_email_worker,
+            args=(appt_id,),
+            daemon=True,
+        ).start()
+
+        flash(
+            f"Appointment #{id} for {appointment.customer_name} marked as completed. "
+            f"A review request email has been sent to {appointment.email}.",
             "success",
         )
 
@@ -679,8 +1322,27 @@ def admin_logout():
     flash("You have been logged out successfully.", "info")
     return redirect(url_for("admin_login"))
 
+# NEW (Feature 1): manual trigger so you can TEST reminders without waiting an hour.
+@app.route("/admin/test-reminders")
+@login_required
+def test_reminders():
+    count = check_and_send_reminders()
+    flash(
+        f"Reminder check complete. {count} reminder email(s) sent for tomorrow's approved appointments.",
+        "info",
+    )
+    return redirect(url_for("admin_dashboard"))
+
+
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
         print("Database ready!")
+
+    # Flask's debug mode runs this file in TWO processes (a watcher + the real
+    # worker). We only start the scheduler in the worker process, so reminders
+    # are never scheduled twice (which would send duplicate emails).
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        start_scheduler()
+
     app.run(debug=True)

@@ -1,0 +1,168 @@
+{% extends 'base.html' %}
+
+{% block title %}Leave a Review — LensCraft Studio{% endblock %}
+
+{% block content %}
+
+<style>
+    /* Star rating widget */
+    .star-rating {
+        font-size: 2.6rem;
+        color: #ffc107;
+        cursor: pointer;
+        display: inline-block;
+    }
+    .star-rating i {
+        margin: 0 4px;
+        transition: transform 0.1s ease;
+    }
+    .star-rating i:hover {
+        transform: scale(1.15);
+    }
+    .review-card {
+        border: none;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        padding: 40px;
+        background: #fff;
+    }
+</style>
+
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+
+        {# ---------- STATE: invalid link ---------- #}
+        {% if state == 'invalid' %}
+        <div class="review-card text-center">
+            <i class="bi bi-exclamation-circle" style="font-size: 3.5rem; color: #dc3545;"></i>
+            <h3 class="fw-bold mt-3">This review link isn't valid</h3>
+            <p class="text-muted">
+                The link may be incorrect or expired. If you believe this is a mistake,
+                please contact the studio on 0540750090.
+            </p>
+            <a href="{{ url_for('index') }}" class="btn btn-dark mt-2">
+                <i class="bi bi-house me-2"></i>Back to Homepage
+            </a>
+        </div>
+
+        {# ---------- STATE: already reviewed ---------- #}
+        {% elif state == 'already' %}
+        <div class="review-card text-center">
+            <i class="bi bi-check-circle-fill" style="font-size: 3.5rem; color: #28a745;"></i>
+            <h3 class="fw-bold mt-3">You've already reviewed</h3>
+            <p class="text-muted">
+                Thank you! We've already received your review for this session.
+                We really appreciate your feedback.
+            </p>
+            <a href="{{ url_for('index') }}" class="btn btn-dark mt-2">
+                <i class="bi bi-house me-2"></i>Back to Homepage
+            </a>
+        </div>
+
+        {# ---------- STATE: thank you (after submitting) ---------- #}
+        {% elif state == 'thanks' %}
+        <div class="review-card text-center">
+            <i class="bi bi-stars" style="font-size: 3.5rem; color: #ffc107;"></i>
+            <h3 class="fw-bold mt-3 text-success">Thank you, {{ appointment.customer_name }}!</h3>
+            <p class="text-muted">
+                Your review has been submitted successfully. It means a lot to us
+                and helps other customers discover LensCraft Studio.
+            </p>
+            <a href="{{ url_for('index') }}" class="btn btn-dark mt-2">
+                <i class="bi bi-house me-2"></i>Back to Homepage
+            </a>
+        </div>
+
+        {# ---------- STATE: the review form ---------- #}
+        {% else %}
+        <div class="review-card">
+
+            <div class="text-center mb-4">
+                <i class="bi bi-chat-heart-fill" style="font-size: 3rem; color: #0f3460;"></i>
+                <h3 class="fw-bold mt-2">Leave a Review</h3>
+                <p class="text-muted mb-0">
+                    How was your <strong>{{ appointment.service }}</strong> session,
+                    {{ appointment.customer_name }}?
+                </p>
+            </div>
+
+            <form method="POST" action="{{ url_for('review', token=appointment.review_token) }}"
+                  id="reviewForm">
+
+                <!-- Star rating -->
+                <div class="text-center mb-4">
+                    <label class="form-label d-block mb-2">Your Rating</label>
+                    <div class="star-rating" id="starRating">
+                        <i class="bi bi-star" data-value="1"></i>
+                        <i class="bi bi-star" data-value="2"></i>
+                        <i class="bi bi-star" data-value="3"></i>
+                        <i class="bi bi-star" data-value="4"></i>
+                        <i class="bi bi-star" data-value="5"></i>
+                    </div>
+                    <!-- The chosen rating is stored here and sent with the form -->
+                    <input type="hidden" name="rating" id="ratingInput" value="">
+                    <div id="ratingText" class="form-text mt-1">Tap a star to rate</div>
+                </div>
+
+                <!-- Comment -->
+                <div class="mb-4">
+                    <label for="comment" class="form-label">
+                        Your Review <span class="text-muted">(optional)</span>
+                    </label>
+                    <textarea class="form-control" id="comment" name="comment" rows="4"
+                              placeholder="Tell us what you loved, or how we can improve..."></textarea>
+                </div>
+
+                <button type="submit" class="btn btn-book w-100">
+                    <i class="bi bi-send-fill me-2"></i>Submit Review
+                </button>
+
+            </form>
+        </div>
+        {% endif %}
+
+    </div>
+</div>
+
+{% if state == 'form' or not state %}
+<script>
+    const stars = document.querySelectorAll('#starRating i');
+    const ratingInput = document.getElementById('ratingInput');
+    const ratingText = document.getElementById('ratingText');
+    const labels = { 1: 'Poor', 2: 'Fair', 3: 'Good', 4: 'Very good', 5: 'Excellent' };
+    let currentRating = 0;
+
+    // Fill the stars up to a given number.
+    function paint(upTo) {
+        stars.forEach(s => {
+            const v = parseInt(s.dataset.value);
+            s.className = (v <= upTo) ? 'bi bi-star-fill' : 'bi bi-star';
+        });
+    }
+
+    stars.forEach(star => {
+        const value = parseInt(star.dataset.value);
+        // Preview on hover
+        star.addEventListener('mouseenter', () => paint(value));
+        star.addEventListener('mouseleave', () => paint(currentRating));
+        // Lock in on click
+        star.addEventListener('click', () => {
+            currentRating = value;
+            ratingInput.value = currentRating;
+            paint(currentRating);
+            ratingText.textContent = labels[currentRating];
+        });
+    });
+
+    // Don't allow submitting with no rating chosen.
+    document.getElementById('reviewForm').addEventListener('submit', function (e) {
+        if (!ratingInput.value) {
+            e.preventDefault();
+            ratingText.textContent = 'Please tap a star first.';
+            ratingText.className = 'form-text mt-1 text-danger';
+        }
+    });
+</script>
+{% endif %}
+
+{% endblock %}

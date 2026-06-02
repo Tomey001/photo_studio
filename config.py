@@ -15,6 +15,18 @@ class Config:
     # Email address for the studio/admin to receive a notification when customers book.
     # You can override this later using an environment variable.
     ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL') or 'admin@example.com'
+    
+    # Base web address — used to build review links in emails.
+    # On your computer it's localhost; change it to your real domain after you deploy.
+    BASE_URL = os.environ.get('BASE_URL') or 'http://127.0.0.1:5000'
+    
+    # WhatsApp via Twilio (Feature 5)
+    TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID')
+    TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN')
+    TWILIO_WHATSAPP_FROM = os.environ.get('TWILIO_WHATSAPP_FROM') or 'whatsapp:+14155238886'
+
+    # Default country code for formatting local phone numbers (233 = Ghana)
+    DEFAULT_COUNTRY_CODE = os.environ.get('DEFAULT_COUNTRY_CODE') or '233'
 
 
     # Database location — this tells Flask where to find our SQLite file
