@@ -12,9 +12,18 @@ import threading
 import os
 import atexit
 import secrets
+import traceback
+
 
 # NEW (Feature 1): the background "clock" that runs the reminder check every hour.
 from apscheduler.schedulers.background import BackgroundScheduler
+
+# --- Email reliability improvement ---
+# Some of our email sends happen in background threads. To ensure configuration
+# is always loaded consistently and to help debug "no email received", we
+# log the key mail settings per process and force a fresh Flask app context
+# for every background worker.
+
 
 # NEW (Feature 5): Twilio for WhatsApp. Guarded so the app still runs even if the
 # package isn't installed yet — WhatsApp simply gets skipped in that case.
@@ -23,13 +32,17 @@ try:
 except Exception:
     TwilioClient = None
 
-# Single background worker for all email operations
-# (keeps customer/admin requests responsive and ensures Flask-Mail has app context)
-_EMAIL_THREAD_LOCK = threading.Lock()
+# One lock that EVERY email send passes through, so two threads can never talk
+# to Gmail at the same moment. Two simultaneous sends is the usual cause of
+# "SMTPServerDisconnected: Connection unexpectedly closed".
+# RLock (re-entrant) lets the same thread hold the lock more than once without
+# freezing — needed because some workers already grab this lock themselves.
+_EMAIL_THREAD_LOCK = threading.RLock()
 
 
 app = Flask(__name__)
 app.config.from_object(Config)
+
 
 db = SQLAlchemy(app)
 mail = Mail(app)
@@ -92,26 +105,42 @@ def login_required(f):
 # =====================
 
 def _send_best_effort(msg: Message):
-    # Extra logging so failures aren't silent.
-    try:
-        # Helpful context for debugging SMTP/auth/config issues
-        smtp_cfg = {
-            "MAIL_SERVER": app.config.get("MAIL_SERVER"),
-            "MAIL_PORT": app.config.get("MAIL_PORT"),
-            "MAIL_USE_TLS": app.config.get("MAIL_USE_TLS"),
-            "MAIL_USERNAME_set": bool(app.config.get("MAIL_USERNAME")),
-            "MAIL_PASSWORD_set": bool(app.config.get("MAIL_PASSWORD")),
-            "ADMIN_EMAIL": app.config.get("ADMIN_EMAIL"),
-            "MAIL_DEFAULT_SENDER": app.config.get("MAIL_DEFAULT_SENDER"),
-        }
-        print(f"[MAIL] sending mail: to={msg.recipients} subject={msg.subject} sender={msg.sender} cfg={smtp_cfg}")
+    # If credentials aren’t loaded, Flask-Mail will fail here.
+    # Logging this helps you immediately spot a missing env var.
+    if not app.config.get("MAIL_USERNAME") or not app.config.get("MAIL_PASSWORD"):
+        print(
+            "[MAIL] MISSING SMTP CREDS: "
+            f"MAIL_USERNAME_set={bool(app.config.get('MAIL_USERNAME'))} "
+            f"MAIL_PASSWORD_set={bool(app.config.get('MAIL_PASSWORD'))}"
+        )
+    # Serialize EVERY email send through one lock. Two threads talking to
+    # Gmail at the same moment is the usual cause of
+    # "SMTPServerDisconnected: Connection unexpectedly closed".
+    with _EMAIL_THREAD_LOCK:
+        try:
+            # Helpful context for debugging SMTP/auth/config issues
+            smtp_cfg = {
+                "MAIL_SERVER": app.config.get("MAIL_SERVER"),
+                "MAIL_PORT": app.config.get("MAIL_PORT"),
+                "MAIL_USE_TLS": app.config.get("MAIL_USE_TLS"),
+                "MAIL_USE_SSL": app.config.get("MAIL_USE_SSL"),
+                "MAIL_USERNAME_set": bool(app.config.get("MAIL_USERNAME")),
+                "MAIL_PASSWORD_set": bool(app.config.get("MAIL_PASSWORD")),
+                "ADMIN_EMAIL": app.config.get("ADMIN_EMAIL"),
+                "MAIL_DEFAULT_SENDER": app.config.get("MAIL_DEFAULT_SENDER"),
+            }
+            print(
+                f"[MAIL] sending mail: to={msg.recipients} "
+                f"subject={msg.subject} sender={msg.sender} cfg={smtp_cfg}"
+            )
 
-        mail.send(msg)
-        print(f"[MAIL] send ok: to={msg.recipients} subject={msg.subject}")
-        return True
-    except Exception as e:
-        print(f"[MAIL] send failed: {type(e).__name__}: {e}")
-        return False
+            mail.send(msg)
+            print(f"[MAIL] send ok: to={msg.recipients} subject={msg.subject}")
+            return True
+        except Exception as e:
+            print(f"[MAIL] send failed: {type(e).__name__}: {e}")
+            traceback.print_exc()
+            return False
 
 
 def send_confirmation_email(appointment: Appointment):
@@ -139,24 +168,19 @@ def send_confirmation_email(appointment: Appointment):
     )
 
     # ── UPDATED HTML TEMPLATE (confirmation — pending status) ──────────────
-    # Style matches the dark-themed design from the screenshots:
-    # lavender header, dark body, green-bordered card, amber pending badge
     msg.html = f"""
     <!DOCTYPE html>
     <html lang="en">
     <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
     <body style="margin:0;padding:0;background-color:#f0f0f0;font-family:Arial,sans-serif;">
 
-      <!-- Outer wrapper -->
       <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f0f0;padding:30px 0;">
         <tr><td align="center">
 
-          <!-- Email card — max 600px wide -->
           <table width="600" cellpadding="0" cellspacing="0"
                  style="max-width:600px;width:100%;border-radius:12px;overflow:hidden;
                         box-shadow:0 4px 20px rgba(0,0,0,0.3);">
 
-            <!-- ── HEADER: lavender background + studio name ── -->
             <tr>
               <td style="background-color:#c5cae9;padding:28px 30px;text-align:center;">
                 <p style="margin:0;font-size:1.5rem;font-weight:bold;color:#1a1a2e;letter-spacing:0.5px;">
@@ -165,35 +189,28 @@ def send_confirmation_email(appointment: Appointment):
               </td>
             </tr>
 
-            <!-- ── BODY: dark background ── -->
             <tr>
               <td style="background-color:#1a1a2e;padding:32px 30px;">
 
-                <!-- Greeting -->
                 <p style="color:#ffffff;font-size:1rem;margin:0 0 12px 0;">
                   Dear <strong style="color:#ffffff;">{appointment.customer_name}</strong>,
                 </p>
 
-                <!-- Message -->
                 <p style="color:#cccccc;font-size:0.95rem;margin:0 0 24px 0;line-height:1.6;">
                   Thank you for booking with LensCraft Studio! Your appointment
                   request has been received and is currently
                   <strong style="color:#ffffff;">pending approval</strong>.
                 </p>
 
-                <!-- ── Appointment details card ── -->
-                <!-- Dark card with left green border -->
                 <div style="background-color:#2a2a3e;border-left:4px solid #28a745;
                             border-radius:8px;padding:20px 24px;margin-bottom:24px;">
 
-                  <!-- Card heading with green underline -->
                   <p style="margin:0 0 12px 0;font-size:1rem;font-weight:bold;
                              color:#ffffff;padding-bottom:10px;
                              border-bottom:2px solid #28a745;">
                     Your Confirmed Appointment
                   </p>
 
-                  <!-- Details table -->
                   <table width="100%" cellpadding="0" cellspacing="0">
                     <tr>
                       <td style="padding:8px 0;color:#888888;font-size:0.9rem;width:40%;">Service:</td>
@@ -216,7 +233,6 @@ def send_confirmation_email(appointment: Appointment):
                     <tr>
                       <td style="padding:8px 0;color:#888888;font-size:0.9rem;">Status:</td>
                       <td style="padding:8px 0;">
-                        <!-- Amber/yellow pending badge -->
                         <span style="background-color:#ffc107;color:#000000;
                                      padding:3px 14px;border-radius:20px;
                                      font-size:0.82rem;font-weight:bold;">
@@ -226,9 +242,7 @@ def send_confirmation_email(appointment: Appointment):
                     </tr>
                   </table>
                 </div>
-                <!-- ── end details card ── -->
 
-                <!-- Info note -->
                 <p style="color:#aaaaaa;font-size:0.88rem;margin:0 0 8px 0;line-height:1.5;">
                   You will receive another email once your booking is approved by our team.
                   If you need to make changes, please contact us on 0540750090 directly.
@@ -236,9 +250,7 @@ def send_confirmation_email(appointment: Appointment):
 
               </td>
             </tr>
-            <!-- ── end body ── -->
 
-            <!-- ── FOOTER: lavender matching header ── -->
             <tr>
               <td style="background-color:#c5cae9;padding:16px 30px;text-align:center;">
                 <p style="margin:0;font-size:0.82rem;color:#1a1a2e;">
@@ -248,16 +260,13 @@ def send_confirmation_email(appointment: Appointment):
             </tr>
 
           </table>
-          <!-- end email card -->
 
         </td></tr>
       </table>
-      <!-- end outer wrapper -->
 
     </body>
     </html>
     """
-    # ── END UPDATED HTML ───────────────────────────────────────────────────
 
     _send_best_effort(msg)
 
@@ -316,9 +325,11 @@ def send_admin_new_appointment_email(appointment: Appointment):
 
 def send_approval_email(appointment: Appointment):
     """Sent when admin approves."""
+    sender = app.config.get("MAIL_DEFAULT_SENDER") or app.config.get("MAIL_USERNAME")
     msg = Message(
         subject="Your Booking Has Been Approved — LensCraft Studio",
         recipients=[appointment.email],
+        sender=sender,
     )
 
     msg.body = (
@@ -333,25 +344,19 @@ def send_approval_email(appointment: Appointment):
     )
 
     # ── UPDATED HTML TEMPLATE (approval — green approved badge) ───────────
-    # Style matches the dark-themed design from the screenshots:
-    # lavender header, dark body, green-bordered card, green approved badge,
-    # dark green "What to bring" section
     msg.html = f"""
     <!DOCTYPE html>
     <html lang="en">
     <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
     <body style="margin:0;padding:0;background-color:#f0f0f0;font-family:Arial,sans-serif;">
 
-      <!-- Outer wrapper -->
       <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f0f0;padding:30px 0;">
         <tr><td align="center">
 
-          <!-- Email card — max 600px wide -->
           <table width="600" cellpadding="0" cellspacing="0"
                  style="max-width:600px;width:100%;border-radius:12px;overflow:hidden;
                         box-shadow:0 4px 20px rgba(0,0,0,0.3);">
 
-            <!-- ── HEADER: lavender background + studio name ── -->
             <tr>
               <td style="background-color:#c5cae9;padding:28px 30px;text-align:center;">
                 <p style="margin:0;font-size:1.5rem;font-weight:bold;color:#1a1a2e;letter-spacing:0.5px;">
@@ -360,40 +365,32 @@ def send_approval_email(appointment: Appointment):
               </td>
             </tr>
 
-            <!-- ── BODY: dark background ── -->
             <tr>
               <td style="background-color:#1a1a2e;padding:32px 30px;">
 
-                <!-- Approved heading -->
                 <h2 style="color:#28a745;margin:0 0 16px 0;font-size:1.2rem;">
                   ✅ Booking Approved!
                 </h2>
 
-                <!-- Greeting -->
                 <p style="color:#ffffff;font-size:1rem;margin:0 0 12px 0;">
                   Dear <strong style="color:#ffffff;">{appointment.customer_name}</strong>,
                 </p>
 
-                <!-- Message -->
                 <p style="color:#cccccc;font-size:0.95rem;margin:0 0 24px 0;line-height:1.6;">
                   Great news! Your appointment with LensCraft Studio has been
                   <strong style="color:#28a745;">approved</strong>.
                   We look forward to seeing you!
                 </p>
 
-                <!-- ── Appointment details card ── -->
-                <!-- Dark card with left green border -->
                 <div style="background-color:#2a2a3e;border-left:4px solid #28a745;
                             border-radius:8px;padding:20px 24px;margin-bottom:20px;">
 
-                  <!-- Card heading with green underline -->
                   <p style="margin:0 0 12px 0;font-size:1rem;font-weight:bold;
                              color:#ffffff;padding-bottom:10px;
                              border-bottom:2px solid #28a745;">
                     Your Confirmed Appointment
                   </p>
 
-                  <!-- Details table -->
                   <table width="100%" cellpadding="0" cellspacing="0">
                     <tr>
                       <td style="padding:8px 0;color:#888888;font-size:0.9rem;width:40%;">Service:</td>
@@ -416,7 +413,6 @@ def send_approval_email(appointment: Appointment):
                     <tr>
                       <td style="padding:8px 0;color:#888888;font-size:0.9rem;">Status:</td>
                       <td style="padding:8px 0;">
-                        <!-- Green approved badge -->
                         <span style="background-color:#28a745;color:#ffffff;
                                      padding:3px 14px;border-radius:20px;
                                      font-size:0.82rem;font-weight:bold;">
@@ -426,10 +422,7 @@ def send_approval_email(appointment: Appointment):
                     </tr>
                   </table>
                 </div>
-                <!-- ── end details card ── -->
 
-                <!-- ── What to bring section ── -->
-                <!-- Dark green background section as seen in screenshots -->
                 <div style="background-color:#132d1a;border-radius:8px;
                             padding:16px 20px;margin-bottom:20px;">
                   <p style="margin:0 0 8px 0;font-size:0.95rem;">
@@ -441,9 +434,7 @@ def send_approval_email(appointment: Appointment):
                     you have in mind for your session.
                   </p>
                 </div>
-                <!-- ── end what to bring ── -->
 
-                <!-- Closing note -->
                 <p style="color:#aaaaaa;font-size:0.88rem;margin:0;line-height:1.5;">
                   If you need to reschedule or have any questions,
                   please contact us on 0540750090 as soon as possible.
@@ -451,9 +442,7 @@ def send_approval_email(appointment: Appointment):
 
               </td>
             </tr>
-            <!-- ── end body ── -->
 
-            <!-- ── FOOTER: lavender matching header ── -->
             <tr>
               <td style="background-color:#c5cae9;padding:16px 30px;text-align:center;">
                 <p style="margin:0;font-size:0.82rem;color:#1a1a2e;">
@@ -463,28 +452,25 @@ def send_approval_email(appointment: Appointment):
             </tr>
 
           </table>
-          <!-- end email card -->
 
         </td></tr>
       </table>
-      <!-- end outer wrapper -->
 
     </body>
     </html>
     """
-    # ── END UPDATED HTML ───────────────────────────────────────────────────
 
     _send_best_effort(msg)
 
 def send_rejection_email(appointment: Appointment):
     """Sent when admin rejects."""
+    sender = app.config.get("MAIL_DEFAULT_SENDER") or app.config.get("MAIL_USERNAME")
     msg = Message(
         subject="Your Booking Was Not Approved — LensCraft Studio",
         recipients=[appointment.email],
+        sender=sender,
     )
 
-    # NOTE: removed a stray "<" character that was sitting on its own line here
-    # in the previous version (it was malformed HTML left over from an edit).
     msg.html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
       <div style="background-color: #0f3460; padding: 30px; text-align: center;">
@@ -528,8 +514,6 @@ def send_reminder_email(appointment: Appointment):
         "Regards,\nLensCraft Studio\n"
     )
 
-    # Dark-themed HTML, consistent with the confirmation/approval emails,
-    # but with a blue "reminder" banner instead of the green approval note.
     msg.html = f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -543,7 +527,6 @@ def send_reminder_email(appointment: Appointment):
                  style="max-width:600px;width:100%;border-radius:12px;overflow:hidden;
                         box-shadow:0 4px 20px rgba(0,0,0,0.3);">
 
-            <!-- HEADER -->
             <tr>
               <td style="background-color:#c5cae9;padding:28px 30px;text-align:center;">
                 <p style="margin:0;font-size:1.5rem;font-weight:bold;color:#1a1a2e;letter-spacing:0.5px;">
@@ -552,7 +535,6 @@ def send_reminder_email(appointment: Appointment):
               </td>
             </tr>
 
-            <!-- BODY -->
             <tr>
               <td style="background-color:#1a1a2e;padding:32px 30px;">
 
@@ -570,7 +552,6 @@ def send_reminder_email(appointment: Appointment):
                   We can't wait to see you!
                 </p>
 
-                <!-- Details card -->
                 <div style="background-color:#2a2a3e;border-left:4px solid #28a745;
                             border-radius:8px;padding:20px 24px;margin-bottom:20px;">
                   <p style="margin:0 0 12px 0;font-size:1rem;font-weight:bold;
@@ -600,7 +581,6 @@ def send_reminder_email(appointment: Appointment):
                   </table>
                 </div>
 
-                <!-- Blue reminder banner -->
                 <div style="background-color:#15263b;border-radius:8px;
                             padding:16px 20px;margin-bottom:20px;">
                   <p style="margin:0 0 8px 0;font-size:0.95rem;">
@@ -620,7 +600,6 @@ def send_reminder_email(appointment: Appointment):
               </td>
             </tr>
 
-            <!-- FOOTER -->
             <tr>
               <td style="background-color:#c5cae9;padding:16px 30px;text-align:center;">
                 <p style="margin:0;font-size:0.82rem;color:#1a1a2e;">
@@ -679,7 +658,6 @@ def send_review_request_email(appointment: Appointment):
                  style="max-width:600px;width:100%;border-radius:12px;overflow:hidden;
                         box-shadow:0 4px 20px rgba(0,0,0,0.3);">
 
-            <!-- HEADER -->
             <tr>
               <td style="background-color:#c5cae9;padding:28px 30px;text-align:center;">
                 <p style="margin:0;font-size:1.5rem;font-weight:bold;color:#1a1a2e;letter-spacing:0.5px;">
@@ -688,7 +666,6 @@ def send_review_request_email(appointment: Appointment):
               </td>
             </tr>
 
-            <!-- BODY -->
             <tr>
               <td style="background-color:#1a1a2e;padding:32px 30px;text-align:center;">
 
@@ -707,7 +684,6 @@ def send_review_request_email(appointment: Appointment):
                   helps other customers find us.
                 </p>
 
-                <!-- Review button -->
                 <a href="{review_url}"
                    style="display:inline-block;background-color:#28a745;color:#ffffff;
                           text-decoration:none;font-weight:bold;font-size:1rem;
@@ -723,7 +699,6 @@ def send_review_request_email(appointment: Appointment):
               </td>
             </tr>
 
-            <!-- FOOTER -->
             <tr>
               <td style="background-color:#c5cae9;padding:16px 30px;text-align:center;">
                 <p style="margin:0;font-size:0.82rem;color:#1a1a2e;">
@@ -898,7 +873,6 @@ def index():
         full_stars = 0
 
     # Service Gallery: show a preview of the first 8 photos on the homepage.
-    # gallery_total lets the page decide whether to show a "View full gallery" link.
     all_gallery = _list_gallery_images()
     gallery_images = all_gallery[:8]
     gallery_total = len(all_gallery)
@@ -922,11 +896,8 @@ def gallery():
 @app.route("/reviews")
 def all_reviews():
     # Bonus: a paginated "all reviews" page.
-    # ?page=N comes from the Previous/Next links; defaults to page 1.
     page = request.args.get("page", 1, type=int)
 
-    # .paginate() gives us just this page's reviews (9 per page) plus all the
-    # info we need to draw the page links (has_next, pages, etc.).
     pagination = (
         Review.query.order_by(Review.created_at.desc())
         .paginate(page=page, per_page=9, error_out=False)
@@ -956,10 +927,6 @@ def booked_times():
     Feature 3: returns, as JSON, the list of time slots already taken on a
     given date. The booking page calls this to grey out unavailable times
     in real time.
-
-    A slot counts as taken if it is "pending" or "approved" — exactly the
-    SAME rule used by the double-booking check below, so the calendar and
-    the safety check can never disagree.
     """
     date_value = request.args.get("date", "").strip()
     if not date_value:
@@ -1015,7 +982,7 @@ def book():
         db.session.add(new_appointment)
         db.session.commit()
 
-        # Show success page immediately (email best-effort)
+        # Show success page immediately (notifications run in the background).
         response = render_template(
             "success.html",
             name=customer_name,
@@ -1025,42 +992,42 @@ def book():
             time=time,
         )
 
-        # Send the booking notifications in the background so the page returns fast.
-        # We re-load the appointment inside the thread (fresh + safe), and we run
-        # EACH notification in its own try block so one failing can never block
-        # the others. Email and WhatsApp are fully independent.
+        # Send the booking notifications in the background so the page returns
+        # fast. We re-load the appointment inside the thread (fresh + safe), and
+        # we run EACH notification in its own try block so one failing can never
+        # block the others. All emails ultimately go through _send_best_effort,
+        # which serializes every send so Gmail is never hit by two at once.
         appt_id = new_appointment.id
 
         def _booking_notify_worker(appointment_id):
             with app.app_context():
-                with _EMAIL_THREAD_LOCK:
-                    appointment = Appointment.query.get(appointment_id)
-                    if not appointment:
-                        print(f"[NOTIFY] appointment {appointment_id} not found; skipping.")
-                        return
+                appointment = Appointment.query.get(appointment_id)
+                if not appointment:
+                    print(f"[NOTIFY] appointment {appointment_id} not found; skipping.")
+                    return
 
-                    # 1) Customer confirmation email
-                    try:
-                        send_confirmation_email(appointment)
-                    except Exception as e:
-                        print(f"[MAIL] confirmation email failed: {type(e).__name__}: {e}")
+                # 1) Customer confirmation email
+                try:
+                    send_confirmation_email(appointment)
+                except Exception as e:
+                    print(f"[MAIL] confirmation email failed: {type(e).__name__}: {e}")
 
-                    # 2) Admin notification email
-                    try:
-                        send_admin_new_appointment_email(appointment)
-                    except Exception as e:
-                        print(f"[MAIL] admin email failed: {type(e).__name__}: {e}")
+                # 2) Admin notification email
+                try:
+                    send_admin_new_appointment_email(appointment)
+                except Exception as e:
+                    print(f"[MAIL] admin email failed: {type(e).__name__}: {e}")
 
-                    # 3) Customer WhatsApp confirmation
-                    try:
-                        send_whatsapp(
-                            appointment.phone,
-                            f"Hello {appointment.customer_name}! LensCraft Studio has received your "
-                            f"booking for {appointment.service} on {appointment.date} at {appointment.time}. "
-                            f"Status: pending approval. We'll update you soon!"
-                        )
-                    except Exception as e:
-                        print(f"[WA] booking whatsapp failed: {type(e).__name__}: {e}")
+                # 3) Customer WhatsApp confirmation
+                try:
+                    send_whatsapp(
+                        appointment.phone,
+                        f"Hello {appointment.customer_name}! LensCraft Studio has received your "
+                        f"booking for {appointment.service} on {appointment.date} at {appointment.time}. "
+                        f"Status: pending approval. We'll update you soon!"
+                    )
+                except Exception as e:
+                    print(f"[WA] booking whatsapp failed: {type(e).__name__}: {e}")
 
         threading.Thread(
             target=_booking_notify_worker,
@@ -1069,7 +1036,6 @@ def book():
         ).start()
 
         return response
-
 
     return render_template("book.html")
 
@@ -1151,7 +1117,6 @@ def admin_dashboard():
     # ===== Feature 2: Analytics =====
 
     # 1) Bookings received per month (based on when the booking was made).
-    #    We group by "YYYY-MM" then keep the most recent 6 months.
     month_counter = Counter()
     for a in appointments:
         if a.created_at:
@@ -1211,54 +1176,48 @@ def update_status(id, status):
     db.session.commit()
 
     if status == "approved":
-        # send asynchronously via shared background worker
-        def _email_worker(appointment: Appointment, action: str):
+        # Send asynchronously. _send_best_effort serializes the actual SMTP send,
+        # so we no longer need a separate send lock here.
+        def _email_worker(appointment_id):
             with app.app_context():
-                with _EMAIL_THREAD_LOCK:
-                    try:
-                        if action == "admin_update_approved":
-                            send_approval_email(appointment)
-                            send_whatsapp(
-                                appointment.phone,
-                                f"Good news {appointment.customer_name}! Your LensCraft Studio booking for "
-                                f"{appointment.service} on {appointment.date} at {appointment.time} has been "
-                                f"APPROVED. Please arrive 10 minutes early. See you soon!"
-                            )
-                    except Exception as e:
-                        print(f"[MAIL] background worker failed: {type(e).__name__}: {e}")
+                appt = Appointment.query.get(appointment_id)
+                if not appt:
+                    return
+                try:
+                    send_approval_email(appt)
+                    send_whatsapp(
+                        appt.phone,
+                        f"Good news {appt.customer_name}! Your LensCraft Studio booking for "
+                        f"{appt.service} on {appt.date} at {appt.time} has been "
+                        f"APPROVED. Please arrive 10 minutes early. See you soon!"
+                    )
+                except Exception as e:
+                    print(f"[MAIL] background worker failed: {type(e).__name__}: {e}")
 
-        threading.Thread(
-            target=_email_worker,
-            args=(appointment, "admin_update_approved"),
-            daemon=True,
-        ).start()
+        threading.Thread(target=_email_worker, args=(appointment.id,), daemon=True).start()
 
         flash(
             f"Appointment #{id} for {appointment.customer_name} has been approved. A notification email has been sent to {appointment.email}.",
             "success",
         )
     elif status == "rejected":
-        # send asynchronously via shared background worker
-        def _email_worker(appointment: Appointment, action: str):
+        def _email_worker(appointment_id):
             with app.app_context():
-                with _EMAIL_THREAD_LOCK:
-                    try:
-                        if action == "admin_update_rejected":
-                            send_rejection_email(appointment)
-                            send_whatsapp(
-                                appointment.phone,
-                                f"Hello {appointment.customer_name}, regarding your LensCraft Studio booking for "
-                                f"{appointment.service} on {appointment.date} at {appointment.time}: unfortunately "
-                                f"we could not approve it at this time. Please contact us on 0540750090 for options."
-                            )
-                    except Exception as e:
-                        print(f"[MAIL] background worker failed: {type(e).__name__}: {e}")
+                appt = Appointment.query.get(appointment_id)
+                if not appt:
+                    return
+                try:
+                    send_rejection_email(appt)
+                    send_whatsapp(
+                        appt.phone,
+                        f"Hello {appt.customer_name}, regarding your LensCraft Studio booking for "
+                        f"{appt.service} on {appt.date} at {appt.time}: unfortunately "
+                        f"we could not approve it at this time. Please contact us on 0540750090 for options."
+                    )
+                except Exception as e:
+                    print(f"[MAIL] background worker failed: {type(e).__name__}: {e}")
 
-        threading.Thread(
-            target=_email_worker,
-            args=(appointment, "admin_update_rejected"),
-            daemon=True,
-        ).start()
+        threading.Thread(target=_email_worker, args=(appointment.id,), daemon=True).start()
 
         flash(
             f"Appointment #{id} for {appointment.customer_name} has been rejected. A feedback email has been sent to {appointment.email}.",
@@ -1271,26 +1230,18 @@ def update_status(id, status):
             appointment.review_token = secrets.token_urlsafe(24)
             db.session.commit()
 
-        # Send the review-request email in the background.
-        # We pass the id and re-load the appointment inside the thread so the
-        # database object is always fresh and safe to use.
         appt_id = appointment.id
 
         def _review_email_worker(appointment_id):
             with app.app_context():
-                with _EMAIL_THREAD_LOCK:
-                    try:
-                        appt = Appointment.query.get(appointment_id)
-                        if appt:
-                            send_review_request_email(appt)
-                    except Exception as e:
-                        print(f"[MAIL] review email worker failed: {type(e).__name__}: {e}")
+                try:
+                    appt = Appointment.query.get(appointment_id)
+                    if appt:
+                        send_review_request_email(appt)
+                except Exception as e:
+                    print(f"[MAIL] review email worker failed: {type(e).__name__}: {e}")
 
-        threading.Thread(
-            target=_review_email_worker,
-            args=(appt_id,),
-            daemon=True,
-        ).start()
+        threading.Thread(target=_review_email_worker, args=(appt_id,), daemon=True).start()
 
         flash(
             f"Appointment #{id} for {appointment.customer_name} marked as completed. "
