@@ -46,10 +46,25 @@
 
             <p class="text-muted small mb-4">
                 <i class="bi bi-info-circle me-1"></i>
-                Your booking is currently <strong>pending</strong>. 
-                Our team will review and approve it shortly. 
+                Your booking is currently <strong>pending</strong>.
+                Our team will review and approve it shortly.
                 You will receive another email once approved.
             </p>
+
+            <div class="mb-4">
+                <button id="aiBtn"
+                        onclick="loadAiRecommendations()"
+                        class="btn btn-book w-100"
+                        style="background: linear-gradient(135deg, #0f3460 0%, #6f42c1 100%);
+                               border: none;">
+                    <i class="bi bi-stars me-2"></i>
+                    ✨ LensCraft AI Photography Assistant
+                </button>
+                <p class="text-muted text-center mt-2" style="font-size:0.8rem;">
+                    Get personalised pose, outfit, and lighting recommendations for your
+                    <strong>{{ service }}</strong> session
+                </p>
+            </div>
 
             <a href="{{ url_for('index') }}" class="btn btn-dark px-4">
                 <i class="bi bi-house me-2"></i>Back to Homepage
@@ -58,5 +73,210 @@
         </div>
     </div>
 </div>
+
+<div class="row justify-content-center mt-4">
+    <div class="col-lg-8">
+
+        <!-- Loading spinner -->
+        <div id="aiSpinner" style="display:none;" class="text-center py-4">
+            <div class="spinner-border text-primary mb-3" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="text-muted">
+                <i class="bi bi-stars me-1"></i>
+                LensCraft AI is preparing your personalised recommendations...
+            </p>
+        </div>
+
+        <!-- Error message (hidden until AI request fails) -->
+        <div id="aiError" class="alert alert-warning d-flex align-items-center" role="alert" style="display:none; opacity:0;">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            <span id="aiErrorText"></span>
+        </div>
+
+
+        <!-- Result card -->
+        <div id="aiResultCard" style="display:none;">
+            <div style="background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+                        border-radius: 16px; padding: 28px 30px; color: white;">
+
+                <div class="d-flex align-items-center mb-4">
+                    <span style="font-size:2rem; margin-right:12px;">&#129302;</span>
+                    <div>
+                        <h4 style="margin:0; font-weight:700; color:#c5cae9;">
+                            LensCraft AI Photography Assistant
+                        </h4>
+                        <p style="margin:0; font-size:0.85rem; color:#9fa8c7;">
+                            Personalised recommendations for your
+                            <strong id="aiServiceName" style="color:#ffffff;"></strong> session
+                        </p>
+                    </div>
+                </div>
+
+                <div class="row g-3" id="aiSectionsGrid">
+
+                    <div class="col-md-6">
+                        <div style="background:rgba(255,255,255,0.08); border-radius:10px; padding:16px 18px; height:100%;">
+                            <p style="margin:0 0 10px 0; font-weight:700; font-size:0.9rem; color:#c5cae9;">
+                                &#128247; Best Poses
+                            </p>
+                            <ul id="aiPoses" style="margin:0; padding-left:18px; font-size:0.85rem; color:#d0d8f0; line-height:1.8;"></ul>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div style="background:rgba(255,255,255,0.08); border-radius:10px; padding:16px 18px; height:100%;">
+                            <p style="margin:0 0 10px 0; font-weight:700; font-size:0.9rem; color:#c5cae9;">
+                                &#128084; Outfit Ideas
+                            </p>
+                            <ul id="aiOutfits" style="margin:0; padding-left:18px; font-size:0.85rem; color:#d0d8f0; line-height:1.8;"></ul>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div style="background:rgba(255,255,255,0.08); border-radius:10px; padding:16px 18px; height:100%;">
+                            <p style="margin:0 0 10px 0; font-weight:700; font-size:0.9rem; color:#c5cae9;">
+                                &#127912; Background Ideas
+                            </p>
+                            <ul id="aiBackgrounds" style="margin:0; padding-left:18px; font-size:0.85rem; color:#d0d8f0; line-height:1.8;"></ul>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div style="background:rgba(255,255,255,0.08); border-radius:10px; padding:16px 18px; height:100%;">
+                            <p style="margin:0 0 10px 0; font-weight:700; font-size:0.9rem; color:#c5cae9;">
+                                &#128161; Lighting Style
+                            </p>
+                            <ul id="aiLighting" style="margin:0; padding-left:18px; font-size:0.85rem; color:#d0d8f0; line-height:1.8;"></ul>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div style="background:rgba(255,255,255,0.08); border-radius:10px; padding:16px 18px; height:100%;">
+                            <p style="margin:0 0 10px 0; font-weight:700; font-size:0.9rem; color:#c5cae9;">
+                                &#127873; Props
+                            </p>
+                            <ul id="aiProps" style="margin:0; padding-left:18px; font-size:0.85rem; color:#d0d8f0; line-height:1.8;"></ul>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div style="background:rgba(40,167,69,0.15); border-left:3px solid #28a745; border-radius:10px; padding:16px 18px; height:100%;">
+                            <p style="margin:0 0 10px 0; font-weight:700; font-size:0.9rem; color:#6fcf8a;">
+                                &#11088; Extra Tips
+                            </p>
+                            <ul id="aiTips" style="margin:0; padding-left:18px; font-size:0.85rem; color:#a8e6b8; line-height:1.8;"></ul>
+                        </div>
+                    </div>
+
+                </div>
+
+                <p style="margin:20px 0 0 0; font-size:0.78rem; color:#7a8ab0; text-align:center;">
+                    &#128247; Generated by LensCraft AI Photography Assistant &nbsp;|&nbsp;
+                    Recommendations are tailored to your selected service
+                </p>
+
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    const APPOINTMENT_ID = {{ appointment_id }};
+
+    const aiBtn        = document.getElementById('aiBtn');
+    const aiSpinner    = document.getElementById('aiSpinner');
+    const aiError      = document.getElementById('aiError');
+    const aiErrorText  = document.getElementById('aiErrorText');
+    const aiResultCard = document.getElementById('aiResultCard');
+    const aiServiceEl  = document.getElementById('aiServiceName');
+
+    const aiLists = {
+        poses:       document.getElementById('aiPoses'),
+        outfits:     document.getElementById('aiOutfits'),
+        backgrounds: document.getElementById('aiBackgrounds'),
+        lighting:    document.getElementById('aiLighting'),
+        props:       document.getElementById('aiProps'),
+        tips:        document.getElementById('aiTips'),
+    };
+
+    function fillList(ulEl, items) {
+        ulEl.innerHTML = '';
+        if (!items || items.length === 0) {
+            const li = document.createElement('li');
+            li.textContent = 'No recommendations available for this section.';
+            li.style.color = '#888';
+            ulEl.appendChild(li);
+            return;
+        }
+        items.forEach(function(text) {
+            const li = document.createElement('li');
+            li.textContent = text;
+            ulEl.appendChild(li);
+        });
+    }
+
+    async function loadAiRecommendations() {
+        aiBtn.disabled = true;
+        aiBtn.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>Generating recommendations...';
+
+        aiResultCard.style.display = 'none';
+        aiError.style.display      = 'none';
+        aiSpinner.style.display    = 'block';
+
+        aiSpinner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+        try {
+            const response = await fetch(`/api/ai-recommendations/${APPOINTMENT_ID}`);
+            const data     = await response.json();
+
+            aiSpinner.style.display = 'none';
+
+            if (data.success) {
+                const rec = data.recommendations;
+                fillList(aiLists.poses,       rec.poses);
+                fillList(aiLists.outfits,     rec.outfits);
+                fillList(aiLists.backgrounds, rec.backgrounds);
+                fillList(aiLists.lighting,    rec.lighting);
+                fillList(aiLists.props,       rec.props);
+                fillList(aiLists.tips,        rec.tips);
+
+                aiServiceEl.textContent = data.service;
+
+                aiResultCard.style.display   = 'block';
+                aiResultCard.style.opacity   = '0';
+                aiResultCard.style.transition = 'opacity 0.5s ease';
+                requestAnimationFrame(function() {
+                    requestAnimationFrame(function() {
+                        aiResultCard.style.opacity = '1';
+                    });
+                });
+
+                aiResultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                aiBtn.innerHTML = '<i class="bi bi-check-circle me-2"></i>Recommendations Loaded ✓';
+                aiBtn.style.background = 'linear-gradient(135deg, #28a745 0%, #1a7a30 100%)';
+
+            } else {
+                const errorMessage = (data.error || "").trim();
+                if (errorMessage) {
+                    aiErrorText.textContent = errorMessage;
+                    aiError.style.display = 'block';
+                    aiError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+                aiBtn.disabled = false;
+                aiBtn.innerHTML = '<i class="bi bi-stars me-2"></i>✨ Try Again';
+            }
+
+        } catch (networkError) {
+            aiSpinner.style.display = 'none';
+            aiErrorText.textContent = 'Unable to connect to the AI assistant. Please try again.';
+            aiError.style.display = 'block';
+            aiBtn.disabled = false;
+            aiBtn.innerHTML = '<i class="bi bi-stars me-2"></i>✨ Try Again';
+            console.error('[AI] fetch failed:', networkError);
+        }
+    }
+</script>
 
 {% endblock %}

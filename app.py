@@ -14,6 +14,18 @@ import atexit
 import secrets
 import traceback
 
+# ── AI Photography Assistant (Feature 6) ─────────────────────────────────
+# openai is imported here and used only in the /api/ai-recommendations route.
+# If the package is not installed or the key is missing, the route returns a
+# graceful error message — the rest of the app is completely unaffected.
+try:
+    from openai import OpenAI as _OpenAIClient
+    _OPENAI_AVAILABLE = True
+except ImportError:
+    _OpenAIClient = None
+    _OPENAI_AVAILABLE = False
+# ─────────────────────────────────────────────────────────────────────────
+
 
 # NEW (Feature 1): the background "clock" that runs the reminder check every hour.
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -42,6 +54,9 @@ _EMAIL_THREAD_LOCK = threading.RLock()
 
 app = Flask(__name__)
 app.config.from_object(Config)
+
+print("OPENAI KEY EXISTS:", bool(app.config.get("OPENAI_API_KEY")))
+print("MODEL:", app.config.get("OPENAI_MODEL"))
 
 
 db = SQLAlchemy(app)
@@ -990,6 +1005,7 @@ def book():
             service=service,
             date=date,
             time=time,
+            appointment_id=new_appointment.id,   # ── AI Assistant: needed for the recommendations route
         )
 
         # Send the booking notifications in the background so the page returns
@@ -1283,6 +1299,170 @@ def test_reminders():
         "info",
     )
     return redirect(url_for("admin_dashboard"))
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AI PHOTOGRAPHY ASSISTANT — Route (Feature 6)
+# Called by JavaScript on the success page via fetch().
+# Returns JSON with structured photography recommendations from OpenAI GPT.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _build_ai_prompt(service: str) -> str:
+    """
+    Builds the prompt sent to OpenAI based on the selected photography service.
+    The prompt is specific and structured so GPT returns consistent, useful output.
+    """
+    return (
+        f"You are a professional photography advisor for LensCraft Studio in Ghana. "
+        f"A customer has just booked a {service} photography session. "
+        f"Give them friendly, practical, and concise recommendations covering exactly these six areas:\n\n"
+        f"1. POSES: List 4 best poses for {service} photography.\n"
+        f"2. OUTFITS: List 3-4 outfit and colour suggestions.\n"
+        f"3. BACKGROUNDS: List 3 background ideas that work well for {service}.\n"
+        f"4. LIGHTING: Describe the best lighting style in 2-3 sentences.\n"
+        f"5. PROPS: List 3-4 props that enhance {service} sessions.\n"
+        f"6. TIPS: Give 2-3 practical preparation tips for the customer.\n\n"
+        f"Format your response EXACTLY like this (use these exact section headers, "
+        f"use bullet points with a dash, keep each point short):\n\n"
+        f"POSES:\n- point\n- point\n\n"
+        f"OUTFITS:\n- point\n- point\n\n"
+        f"BACKGROUNDS:\n- point\n- point\n\n"
+        f"LIGHTING:\n- point\n- point\n\n"
+        f"PROPS:\n- point\n- point\n\n"
+        f"TIPS:\n- point\n- point\n\n"
+        f"Keep the total response under 350 words. Be warm and encouraging. No markdown, no asterisks."
+    )
+
+
+def _parse_ai_response(text: str) -> dict:
+    """
+    Parses the structured text returned by GPT into a Python dict with
+    one key per section. Each value is a list of bullet point strings.
+    Returns an empty list for any section GPT did not include.
+    """
+    sections = {
+        "poses":       [],
+        "outfits":     [],
+        "backgrounds": [],
+        "lighting":    [],
+        "props":       [],
+        "tips":        [],
+    }
+    # Map the section headers GPT uses to our dict keys
+    header_map = {
+        "POSES":       "poses",
+        "OUTFITS":     "outfits",
+        "BACKGROUNDS": "backgrounds",
+        "LIGHTING":    "lighting",
+        "PROPS":       "props",
+        "TIPS":        "tips",
+    }
+
+    current_key = None
+    for line in text.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # Detect a section header like "POSES:" or "POSES"
+        header_candidate = line.rstrip(":").upper()
+        if header_candidate in header_map:
+            current_key = header_map[header_candidate]
+            continue
+        # Detect a bullet point line starting with - or *
+        if current_key and (line.startswith("-") or line.startswith("*")):
+            point = line.lstrip("-*").strip()
+            if point:
+                sections[current_key].append(point)
+
+    return sections
+
+
+@app.route("/api/ai-recommendations/<int:appointment_id>")
+def ai_recommendations(appointment_id):
+    """
+    AI Photography Assistant endpoint.
+    Called by the success page JavaScript via fetch().
+    Returns JSON: { "success": true, "service": "...", "recommendations": {...} }
+    or             { "success": false, "error": "..." }
+    Never raises an exception — all errors are caught and returned as JSON.
+    """
+    # ── 1. Check openai is available ─────────────────────────────────────
+    if not _OPENAI_AVAILABLE or _OpenAIClient is None:
+        return jsonify({
+            "success": False,
+            "error": "AI recommendations are currently unavailable. Please try again later."
+        }), 503
+
+    # ── 2. Load the OpenAI API key (from Flask config loaded by config.py + .env) ──
+    api_key = app.config.get("OPENAI_API_KEY")
+    if not api_key:
+        print(
+            "[AI] OPENAI_API_KEY missing. Check that you have a .env file with: "
+            "OPENAI_API_KEY=your_key"
+        )
+        return jsonify({
+            "success": False,
+            "error": "AI recommendations are currently unavailable. Please try again later."
+        }), 503
+
+    print(f"[AI] OPENAI_API_KEY loaded: {bool(api_key)}")
+
+    # ── 3. Load the appointment to get the service name ──────────────────
+
+    appointment = Appointment.query.get(appointment_id)
+    if not appointment:
+        return jsonify({
+            "success": False,
+            "error": "Appointment not found."
+        }), 404
+
+    service = appointment.service
+
+    # ── 4. Call OpenAI ────────────────────────────────────────────────────
+    try:
+        client = _OpenAIClient(api_key=api_key)
+        prompt = _build_ai_prompt(service)
+
+        response = client.chat.completions.create(
+            model=app.config.get("OPENAI_MODEL") or "gpt-4o-mini",        # configurable via .env/config.py
+
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a friendly professional photography advisor. "
+                        "Always respond in the exact structured format requested. "
+                        "Be concise, practical, and encouraging."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            max_tokens=600,
+            temperature=0.7,
+        )
+
+        raw_text = response.choices[0].message.content or ""
+        recommendations = _parse_ai_response(raw_text)
+
+        print(f"[AI] Recommendations generated for appointment #{appointment_id} ({service})")
+
+        return jsonify({
+            "success":         True,
+            "service":         service,
+            "recommendations": recommendations,
+        })
+
+    except Exception as e:
+        print(f"[AI] OpenAI call failed: {type(e).__name__}: {e}")
+        return jsonify({
+            "success": False,
+            "error": "AI recommendations are currently unavailable. Please try again later."
+        }), 503
+
 
 
 if __name__ == "__main__":

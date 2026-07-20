@@ -57,3 +57,12 @@ class Config:
     # Flask-Mail uses this as the default "From:" address.
     # We fall back to MAIL_USERNAME if MAIL_DEFAULT_SENDER isn't set.
     MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER') or os.environ.get('MAIL_USERNAME')
+
+    # ── OpenAI Configuration (AI Photography Assistant) ──────────────────
+    # Your OpenAI API key — set this in your .env file:
+    # OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
+    OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+
+    # Model used by the AI Photography Assistant.
+    # gpt-4o-mini is fast, cheap, and excellent for this task.
+    OPENAI_MODEL = os.environ.get('OPENAI_MODEL') or 'gpt-4o-mini'
