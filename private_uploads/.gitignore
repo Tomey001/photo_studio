@@ -1,0 +1,3 @@
+# Never commit identity documents to version control
+*
+!.gitignore

@@ -12,9 +12,16 @@
         <h1>Professional Photography Studio</h1>
         <p>Capture your most precious moments with our expert photographers.<br>
            Book your session online in just a few clicks.</p>
-        <a href="{{ url_for('book') }}" class="btn btn-light btn-lg px-5 py-3 fw-bold">
-            <i class="bi bi-calendar-plus me-2"></i>Book an Appointment
-        </a>
+        <div class="d-flex flex-wrap gap-2 justify-content-center">
+            <a href="{{ url_for('book') }}" class="btn btn-light btn-lg px-5 py-3 fw-bold">
+                <i class="bi bi-calendar-plus me-2"></i>Book an Appointment
+            </a>
+            <!-- ── NEW: link to the Find a Photographer page ── -->
+            <a href="{{ url_for('photographers') }}"
+               class="btn btn-outline-light btn-lg px-5 py-3 fw-bold">
+                <i class="bi bi-people me-2"></i>Find a Photographer
+            </a>
+        </div>
     </div>
 </div>
 
@@ -49,7 +56,7 @@
     <div class="col-md-4">
         <div class="card service-card h-100">
             <div class="icon"><i class="bi bi-balloon-heart-fill"></i></div>
-            <h5 class="fw-bold">Birthday & Anniversaries</h5>
+            <h5 class="fw-bold">Birthday &amp; Anniversaries</h5>
             <p class="text-muted">Celebrate life's milestones with vibrant event and birthday photography sessions.</p>
         </div>
     </div>
@@ -71,34 +78,34 @@
     </div>
 
     <div class="col-md-4">
-    <div class="card service-card h-100">
-        <div class="icon"><i class="bi bi-camera-reels-fill"></i></div>
-        <h5 class="fw-bold">Events & Celebrations</h5>
-        <p class="text-muted">
-            Professional photography coverage for parties, corporate events, engagements, festivals, and memorable celebrations.
-        </p>
+        <div class="card service-card h-100">
+            <div class="icon"><i class="bi bi-camera-reels-fill"></i></div>
+            <h5 class="fw-bold">Events &amp; Celebrations</h5>
+            <p class="text-muted">
+                Professional photography coverage for parties, corporate events, engagements, festivals, and memorable celebrations.
+            </p>
+        </div>
     </div>
-</div>
 
-<div class="col-md-4">
-    <div class="card service-card h-100">
-        <div class="icon"><i class="bi bi-people-fill"></i></div>
-        <h5 class="fw-bold">Family Milestones</h5>
-        <p class="text-muted">
-            Capture special family moments including birthdays, anniversaries, graduations, and other important milestones.
-        </p>
+    <div class="col-md-4">
+        <div class="card service-card h-100">
+            <div class="icon"><i class="bi bi-people-fill"></i></div>
+            <h5 class="fw-bold">Family Milestones</h5>
+            <p class="text-muted">
+                Capture special family moments including birthdays, anniversaries, graduations, and other important milestones.
+            </p>
+        </div>
     </div>
-</div>
 
-<div class="col-md-4">
-    <div class="card service-card h-100">
-        <div class="icon"><i class="bi bi-heart-fill"></i></div>
-        <h5 class="fw-bold">Funeral Coverage</h5>
-        <p class="text-muted">
-            Respectful and professional funeral photography services to help families preserve meaningful memories and tributes.
-        </p>
+    <div class="col-md-4">
+        <div class="card service-card h-100">
+            <div class="icon"><i class="bi bi-heart-fill"></i></div>
+            <h5 class="fw-bold">Funeral Coverage</h5>
+            <p class="text-muted">
+                Respectful and professional funeral photography services to help families preserve meaningful memories and tributes.
+            </p>
+        </div>
     </div>
-</div>
 
 </div>
 
@@ -162,19 +169,8 @@
         </div>
     </div>
 </div>
-
-<script>
-    // When the lightbox opens, show whichever image was clicked.
-    const galleryModal = document.getElementById('galleryModal');
-    if (galleryModal) {
-        galleryModal.addEventListener('show.bs.modal', function (event) {
-            const trigger = event.relatedTarget;
-            const fullSrc = trigger.getAttribute('data-full');
-            document.getElementById('galleryModalImg').src = fullSrc;
-        });
-    }
-</script>
 {% endif %}
+
 
 <!-- ===== HOW IT WORKS SECTION ===== -->
 <div class="bg-white rounded-3 p-5 mb-5 shadow-sm">
@@ -189,7 +185,7 @@
         <div class="col-md-4">
             <div class="rounded-circle bg-dark text-white d-inline-flex align-items-center justify-content-center mb-3"
                  style="width:60px; height:60px; font-size:1.5rem; font-weight:700;">2</div>
-            <h5 class="fw-bold">Pick a Date & Time</h5>
+            <h5 class="fw-bold">Pick a Date &amp; Time</h5>
             <p class="text-muted">Select your preferred date and available time slot online.</p>
         </div>
         <div class="col-md-4">
@@ -261,4 +257,68 @@
 </div>
 {% endif %}
 
+<!-- ===== ARE YOU A PHOTOGRAPHER? CTA SECTION (NEW) ===== -->
+<!-- Prominent call to action inviting photographers to join the network -->
+<div class="rounded-3 p-5 mb-5 text-center"
+     style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: white;">
+
+    <i class="bi bi-camera2" style="font-size: 3rem; opacity: 0.85;"></i>
+
+    <h2 class="fw-bold mt-3 mb-3">Are you a Photographer?</h2>
+
+    <p class="mb-4" style="font-size: 1.1rem; opacity: 0.9; max-width: 640px; margin: 0 auto;">
+        Join our photographer network and showcase your work to customers
+        looking for professional photography services across Ghana.
+    </p>
+
+    <!-- Three quick benefits -->
+    <div class="row g-4 mb-4 justify-content-center" style="max-width: 800px; margin: 0 auto;">
+        <div class="col-md-4">
+            <i class="bi bi-people-fill" style="font-size: 1.6rem; color: #c5cae9;"></i>
+            <p class="mb-0 mt-2" style="font-size: 0.9rem; opacity: 0.85;">
+                Reach more clients
+            </p>
+        </div>
+        <div class="col-md-4">
+            <i class="bi bi-stars" style="font-size: 1.6rem; color: #c5cae9;"></i>
+            <p class="mb-0 mt-2" style="font-size: 0.9rem; opacity: 0.85;">
+                AI-powered matching
+            </p>
+        </div>
+        <div class="col-md-4">
+            <i class="bi bi-images" style="font-size: 1.6rem; color: #c5cae9;"></i>
+            <p class="mb-0 mt-2" style="font-size: 0.9rem; opacity: 0.85;">
+                Showcase your portfolio
+            </p>
+        </div>
+    </div>
+
+    <a href="{{ url_for('join_network') }}"
+       class="btn btn-light btn-lg px-5 py-3 fw-bold">
+        <i class="bi bi-arrow-right-circle me-2"></i>Join Our Photographer Network
+    </a>
+
+</div>
+<!-- ===== END PHOTOGRAPHER CTA SECTION ===== -->
+
+{% endblock %}
+
+
+{% block scripts %}
+<!-- Gallery lightbox script — moved into the scripts block so it runs
+     after Bootstrap's JavaScript has loaded. -->
+{% if gallery_images %}
+<script>
+    // When the lightbox opens, show whichever image was clicked.
+    const galleryModal = document.getElementById('galleryModal');
+    if (galleryModal) {
+        galleryModal.addEventListener('show.bs.modal', function (event) {
+            const trigger = event.relatedTarget;
+            const fullSrc = trigger.getAttribute('data-full');
+            document.getElementById('galleryModalImg').src = fullSrc;
+        });
+    }
+</script>
+{% endif %}
 {% endblock %}

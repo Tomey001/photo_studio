@@ -1,0 +1,599 @@
+{% extends 'base.html' %}
+
+{% block title %}Find a Photographer — LensCraft Studio{% endblock %}
+
+{% block content %}
+
+<!-- Page header -->
+<div class="text-center mb-5">
+    <h1 class="fw-bold">
+        <i class="bi bi-people-fill me-2" style="color:#0f3460;"></i>
+        Find a Photographer
+    </h1>
+    <p class="text-muted lead">
+        Browse our network of professional photographers and find the perfect match for your session.
+    </p>
+    <a href="{{ url_for('join_network') }}" class="btn btn-outline-dark btn-sm px-4">
+        <i class="bi bi-camera me-1"></i> Are you a photographer? Join our network
+    </a>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     AI PHOTOGRAPHER FINDER
+     Customer types a description, AI returns matched photographers.
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="mb-5">
+    <div style="background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+                border-radius: 16px; padding: 28px 30px;">
+
+        <div class="d-flex align-items-center mb-3">
+            <span style="font-size:1.8rem; margin-right:12px;">&#129302;</span>
+            <div>
+                <h4 style="margin:0; font-weight:700; color:#c5cae9;">
+                    AI Photographer Finder
+                </h4>
+                <p style="margin:0; font-size:0.85rem; color:#9fa8c7;">
+                    Describe what you are looking for and our AI will match you with the right photographer
+                </p>
+            </div>
+        </div>
+
+        <div class="row g-2 align-items-end">
+            <div class="col-md-9">
+                <label for="aiDescription" class="form-label"
+                       style="color:#c5cae9; font-size:0.85rem; font-weight:600;">
+                    Describe your ideal photographer or session:
+                </label>
+                <textarea class="form-control" id="aiDescription" rows="2"
+                          style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2);
+                                 color:#ffffff; border-radius:8px; resize:none;"
+                          placeholder="e.g. I want a natural outdoor photographer for a family session, warm and friendly style..."></textarea>
+            </div>
+
+            <!-- Telling the AI the region explicitly beats hoping it picks the
+                 place name out of free text. -->
+            <div class="col-md-3">
+                <label for="aiRegion" class="form-label"
+                       style="color:#c5cae9; font-size:0.85rem; font-weight:600;">
+                    Your region
+                </label>
+                <select id="aiRegion" class="form-select"
+                        style="background:rgba(255,255,255,0.1);
+                               border:1px solid rgba(255,255,255,0.2);
+                               color:#ffffff; border-radius:8px;">
+                    <option value="" style="color:#000;">Anywhere in Ghana</option>
+                    {% for r in all_regions %}
+                    <option value="{{ r }}" style="color:#000;"
+                        {% if region_filter == r %}selected{% endif %}>{{ r }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <button onclick="runAiFinder()" id="aiFinderBtn"
+                        class="btn w-100 fw-bold"
+                        style="background:#28a745; color:white; border:none;
+                               border-radius:8px; padding:10px;">
+                    <i class="bi bi-stars me-1"></i> Find My Match
+                </button>
+            </div>
+        </div>
+
+        <!-- AI Results area -->
+        <div id="aiFinderSpinner" style="display:none;" class="text-center mt-4">
+            <div class="spinner-border text-light" role="status"></div>
+            <p style="color:#9fa8c7; margin-top:10px; font-size:0.9rem;">
+                AI is searching for your best match...
+            </p>
+        </div>
+
+        <div id="aiFinderError" class="alert alert-warning mt-3" style="display:none;">
+            <i class="bi bi-exclamation-triangle me-2"></i>
+            <span id="aiFinderErrorText"></span>
+        </div>
+
+        <div id="aiFinderResults" style="display:none;" class="mt-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <p style="color:#6fcf8a; font-size:0.85rem; font-weight:600; margin:0;">
+                    &#9989; AI recommendations based on your description:
+                </p>
+                <!-- Clears the results and the description so the customer can
+                     search again, or just get them out of the way to browse
+                     the full list below. -->
+                <button onclick="clearAiResults()"
+                        class="btn btn-sm"
+                        style="background:rgba(255,255,255,0.12); color:#c5cae9;
+                               border:1px solid rgba(255,255,255,0.25);
+                               font-size:0.8rem; white-space:nowrap;">
+                    <i class="bi bi-x-lg me-1"></i>Clear results
+                </button>
+            </div>
+            <!-- Group 1: photographers actually based where the customer asked -->
+            <div id="aiLocalGroup" style="display:none;" class="mb-4">
+                <p id="aiLocalHeading"
+                   style="color:#ffffff; font-weight:700; font-size:0.95rem; margin-bottom:4px;">
+                    <i class="bi bi-house-check me-2" style="color:#6fcf8a;"></i>
+                    Based in your area
+                </p>
+                <p id="aiLocalSub" style="color:#9fa8c7; font-size:0.8rem; margin-bottom:12px;">
+                    These photographers are based where you asked for.
+                </p>
+                <div id="aiLocalCards" class="row g-3"></div>
+            </div>
+
+            <!-- Shown only when nobody is based there -->
+            <div id="aiNoLocal" style="display:none;" class="mb-4">
+                <div style="background:rgba(255,193,7,0.15); border-left:3px solid #ffc107;
+                            border-radius:8px; padding:14px 18px;">
+                    <p style="margin:0; color:#ffcc80; font-size:0.88rem;">
+                        <i class="bi bi-info-circle me-2"></i>
+                        <strong>No photographers are based in that exact area yet.</strong>
+                        The ones below are based elsewhere but will travel to you.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Group 2: photographers who travel in -->
+            <div id="aiTravelGroup" style="display:none;">
+                <p style="color:#ffffff; font-weight:700; font-size:0.95rem; margin-bottom:4px;">
+                    <i class="bi bi-car-front me-2" style="color:#8fb8e0;"></i>
+                    Available to travel to you
+                </p>
+                <p style="color:#9fa8c7; font-size:0.8rem; margin-bottom:12px;">
+                    Based elsewhere, but they cover your area.
+                </p>
+                <div id="aiTravelCards" class="row g-3"></div>
+            </div>
+        </div>
+
+    </div>
+</div>
+<!-- ═══════════════════════════════════════════════════════════════
+     END AI PHOTOGRAPHER FINDER
+     ═══════════════════════════════════════════════════════════════ -->
+
+<!-- Search and filter bar -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('photographers') }}" class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label small fw-bold text-muted">Search</label>
+                <input type="text" name="q" class="form-control"
+                       placeholder="Name, style, keyword..."
+                       value="{{ search_query }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-muted">Service</label>
+                <input type="text" name="service" class="form-control"
+                       placeholder="e.g. Wedding, Portrait..."
+                       value="{{ service_filter }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-muted">Your Region</label>
+                <select name="region" class="form-select">
+                    <option value="">Anywhere in Ghana</option>
+                    {% for r in all_regions %}
+                    <option value="{{ r }}" {% if region_filter == r %}selected{% endif %}>
+                        {{ r }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-dark w-100">
+                    <i class="bi bi-search me-1"></i> Search
+                </button>
+            </div>
+
+            <!-- Only meaningful once a region is chosen -->
+            <div class="col-12">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox"
+                           name="local_only" id="local_only"
+                           {% if local_only %}checked{% endif %}>
+                    <label class="form-check-label" for="local_only" style="font-size:0.88rem;">
+                        Only show photographers <strong>based</strong> in my region
+                    </label>
+                    <div class="form-text" style="font-size:0.8rem;">
+                        Leave unticked to also see photographers who travel to your
+                        region from elsewhere.
+                    </div>
+                </div>
+            </div>
+        </form>
+        {% if search_query or service_filter or region_filter or style_filter %}
+        <div class="mt-2">
+            <a href="{{ url_for('photographers') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-x-circle me-1"></i> Clear filters
+            </a>
+            <small class="text-muted ms-2">
+                Showing {{ photographers|length }} result(s)
+            </small>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Photographer grid -->
+{% if photographers %}
+<div class="row g-4">
+    {% for photographer in photographers %}
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100 border-0 shadow-sm"
+             style="border-radius:12px; overflow:hidden; transition:transform 0.2s ease;"
+             onmouseover="this.style.transform='translateY(-4px)'"
+             onmouseout="this.style.transform='translateY(0)'">
+
+            <!-- Profile image -->
+            <div style="height:220px; overflow:hidden; background:#f0f0f0;">
+                {% if photographer.profile_image %}
+                <img src="{{ url_for('static', filename='img/photographers/' ~ photographer.profile_image) }}"
+                     alt="{{ photographer.name }}"
+                     style="width:100%; height:100%; object-fit:cover;">
+                {% else %}
+                <div class="d-flex align-items-center justify-content-center h-100"
+                     style="background: linear-gradient(135deg, #0f3460, #16213e);">
+                    <i class="bi bi-person-circle" style="font-size:4rem; color:#c5cae9;"></i>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="card-body p-4">
+
+                <!-- Name and experience -->
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <h5 class="fw-bold mb-0">{{ photographer.name }}</h5>
+                        {% if photographer.business_name %}
+                        <small class="text-muted">{{ photographer.business_name }}</small>
+                        {% endif %}
+                        <div class="mt-1">
+                            {% if photographer.is_available %}
+                            <span class="badge bg-success" style="font-size:0.7rem;">
+                                <i class="bi bi-check-circle me-1"></i>Available
+                            </span>
+                            {% else %}
+                            <span class="badge bg-secondary" style="font-size:0.7rem;">
+                                <i class="bi bi-pause-circle me-1"></i>Not available
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if photographer.experience %}
+                    <span class="badge bg-dark text-white"
+                          style="font-size:0.75rem; border-radius:20px; padding:4px 10px;">
+                        {{ photographer.experience }} yr{% if photographer.experience != 1 %}s{% endif %}
+                    </span>
+                    {% endif %}
+                </div>
+
+                <!-- Bio excerpt -->
+                {% if photographer.bio %}
+                <p class="text-muted small mb-3"
+                   style="line-height:1.5; display:-webkit-box;
+                          -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">
+                    {{ photographer.bio }}
+                </p>
+                {% endif %}
+
+                <!-- Services -->
+                {% if photographer.services %}
+                <div class="mb-2">
+                    {% for service in photographer.services_list()[:3] %}
+                    <span class="badge me-1 mb-1"
+                          style="background:#e8f0fe; color:#0f3460;
+                                 font-size:0.72rem; border-radius:20px; padding:4px 10px;">
+                        {{ service }}
+                    </span>
+                    {% endfor %}
+                    {% if photographer.services_list()|length > 3 %}
+                    <span class="badge"
+                          style="background:#f0f0f0; color:#666;
+                                 font-size:0.72rem; border-radius:20px; padding:4px 10px;">
+                        +{{ photographer.services_list()|length - 3 }} more
+                    </span>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <!-- Location -->
+                <!-- Where they are based, and whether they travel to you -->
+                {% if photographer.base_label() %}
+                <p class="text-muted small mb-1">
+                    <i class="bi bi-geo-alt-fill me-1"></i>
+                    Based in <strong>{{ photographer.base_label() }}</strong>
+                </p>
+                {% endif %}
+
+                <p class="text-muted small mb-2">
+                    <i class="bi bi-car-front me-1"></i>
+                    {{ photographer.coverage_label() }}
+                </p>
+
+                <!-- When the customer picked a region, say plainly which this is -->
+                {% if region_filter %}
+                    {% if photographer.is_based_in(region_filter) %}
+                    <span class="badge mb-2"
+                          style="background:#d1e7dd; color:#0a3622;
+                                 font-size:0.72rem; border-radius:20px; padding:4px 10px;">
+                        <i class="bi bi-house-check me-1"></i>Based in your region
+                    </span>
+                    {% elif photographer.covers_nationwide %}
+                    <span class="badge mb-2"
+                          style="background:#cfe2ff; color:#084298;
+                                 font-size:0.72rem; border-radius:20px; padding:4px 10px;">
+                        <i class="bi bi-globe me-1"></i>Works nationwide
+                    </span>
+                    {% else %}
+                    <span class="badge mb-2"
+                          style="background:#fff3cd; color:#664d03;
+                                 font-size:0.72rem; border-radius:20px; padding:4px 10px;">
+                        <i class="bi bi-car-front me-1"></i>Travels to your region
+                    </span>
+                    {% endif %}
+                {% endif %}
+
+                <!-- Portfolio count -->
+                {% if photographer.portfolio %}
+                <p class="text-muted small mb-3">
+                    <i class="bi bi-images me-1"></i>
+                    {{ photographer.portfolio|length }} portfolio image{% if photographer.portfolio|length != 1 %}s{% endif %}
+                </p>
+                {% endif %}
+
+            </div>
+
+            <!-- Card footer with buttons -->
+            <div class="card-footer bg-white border-0 pb-4 px-4 pt-0">
+                <div class="d-flex gap-2">
+                    <a href="{{ url_for('photographer_profile', photographer_id=photographer.id) }}"
+                       class="btn btn-dark btn-sm flex-grow-1">
+                        <i class="bi bi-person me-1"></i> View Profile
+                    </a>
+                    {% if photographer.is_available %}
+                    <a href="{{ url_for('book', photographer=photographer.id) }}"
+                       class="btn btn-outline-dark btn-sm flex-grow-1">
+                        <i class="bi bi-calendar-plus me-1"></i> Book
+                    </a>
+                    {% else %}
+                    <button class="btn btn-outline-secondary btn-sm flex-grow-1" disabled
+                            title="{{ photographer.availability_note or 'Not taking bookings right now' }}">
+                        <i class="bi bi-slash-circle me-1"></i> Unavailable
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% else %}
+<!-- Empty state -->
+<div class="text-center py-5">
+    <i class="bi bi-camera" style="font-size:4rem; color:#ccc;"></i>
+    <h4 class="mt-3 text-muted">No photographers found</h4>
+    {% if search_query or service_filter or region_filter %}
+    <p class="text-muted">Try adjusting your search filters.</p>
+    <a href="{{ url_for('photographers') }}" class="btn btn-outline-dark">Clear filters</a>
+    {% else %}
+    <p class="text-muted">No photographers have been registered yet. Check back soon!</p>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Join network CTA at bottom -->
+<div class="mt-5 p-4 text-center rounded-3"
+     style="background: linear-gradient(135deg, #0f3460 0%, #16213e 100%); color:white;">
+    <i class="bi bi-camera2" style="font-size:2rem; opacity:0.8;"></i>
+    <h4 class="fw-bold mt-2">Are you a professional photographer?</h4>
+    <p style="color:#c5cae9; font-size:0.95rem;">
+        Join the LensCraft network and connect with clients looking for your expertise.
+    </p>
+    <a href="{{ url_for('join_network') }}"
+       class="btn btn-light fw-bold px-5">
+        <i class="bi bi-arrow-right-circle me-2"></i> Join Our Network
+    </a>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Clears the AI results and resets the search box, so the customer can
+// either search again or scroll straight down to the full photographer list.
+function clearAiResults() {
+    document.getElementById('aiFinderResults').style.display = 'none';
+    document.getElementById('aiFinderError').style.display   = 'none';
+    document.getElementById('aiLocalCards').innerHTML  = '';
+    document.getElementById('aiTravelCards').innerHTML = '';
+    const textarea = document.getElementById('aiDescription');
+    textarea.value = '';
+    document.getElementById('aiRegion').value = '';
+    textarea.focus();
+    const btn = document.getElementById('aiFinderBtn');
+    btn.disabled  = false;
+    btn.innerHTML = '<i class="bi bi-stars me-1"></i> Find My Match';
+}
+
+// Builds one photographer card. `local` decides the accent colour, so the two
+// groups stay visually distinct.
+function buildMatchCard(match, local) {
+    const accent = local ? '#28a745' : '#8fb8e0';
+
+    const imgHtml = match.profile_image
+        ? `<img src="${match.profile_image}" alt="${match.name}"
+                style="width:60px;height:60px;object-fit:cover;border-radius:50%;
+                       border:2px solid ${accent};">`
+        : `<div style="width:60px;height:60px;border-radius:50%;border:2px solid ${accent};
+                       background:#2a2a3e;display:flex;align-items:center;justify-content:center;">
+               <i class="bi bi-person-circle" style="color:#c5cae9;font-size:1.8rem;"></i>
+           </div>`;
+
+    const servicesHtml = (match.services || []).slice(0, 3).map(s =>
+        `<span style="background:rgba(255,255,255,0.1);color:#c5cae9;font-size:0.72rem;
+                      padding:2px 8px;border-radius:20px;margin-right:4px;">${s}</span>`
+    ).join('');
+
+    // Say plainly where they are based and whether they travel.
+    const locationLine = match.based_in
+        ? `<p style="margin:0 0 8px 0;color:#9fa8c7;font-size:0.78rem;">
+               <i class="bi bi-geo-alt-fill me-1"></i>Based in ${match.based_in}
+               ${match.nationwide ? ' &middot; travels nationwide' : ''}
+           </p>`
+        : '';
+
+    const col = document.createElement('div');
+    col.className = 'col-md-6 col-lg-4';
+    col.innerHTML = `
+        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:16px;
+                    border-left:3px solid ${accent};">
+            <div class="d-flex align-items-center gap-3 mb-2">
+                ${imgHtml}
+                <div>
+                    <p style="margin:0;font-weight:700;color:#ffffff;font-size:0.95rem;">
+                        ${match.name}
+                    </p>
+                    ${match.business_name !== match.name
+                        ? `<p style="margin:0;color:#9fa8c7;font-size:0.8rem;">${match.business_name}</p>`
+                        : ''}
+                    <div style="background:${accent};color:${local ? '#fff' : '#0f3460'};
+                                display:inline-block;font-size:0.72rem;font-weight:700;
+                                padding:2px 8px;border-radius:20px;margin-top:4px;">
+                        ${match.match_score}% match
+                    </div>
+                </div>
+            </div>
+            ${locationLine}
+            <p style="color:${local ? '#6fcf8a' : '#a9c7e8'};font-size:0.82rem;
+                      margin-bottom:10px;line-height:1.5;">
+                <i class="bi bi-stars me-1"></i>${match.reason}
+            </p>
+            <div class="mb-3">${servicesHtml}</div>
+            <div class="d-flex gap-2">
+                <a href="${match.profile_url}" class="btn btn-sm fw-bold flex-grow-1"
+                   style="background:${accent};color:${local ? '#fff' : '#0f3460'};border:none;">
+                    View Profile
+                </a>
+                <a href="/book?photographer=${match.id}" class="btn btn-sm flex-grow-1"
+                   style="background:rgba(255,255,255,0.1);color:white;
+                          border:1px solid rgba(255,255,255,0.2);">
+                    Book Now
+                </a>
+            </div>
+        </div>`;
+    return col;
+}
+
+async function runAiFinder() {
+    const description = document.getElementById('aiDescription').value.trim();
+    const region      = document.getElementById('aiRegion').value;
+    const btn         = document.getElementById('aiFinderBtn');
+    const spinner     = document.getElementById('aiFinderSpinner');
+    const errorDiv    = document.getElementById('aiFinderError');
+    const errorText   = document.getElementById('aiFinderErrorText');
+    const resultsDiv  = document.getElementById('aiFinderResults');
+    const localGroup  = document.getElementById('aiLocalGroup');
+    const travelGroup = document.getElementById('aiTravelGroup');
+    const noLocalMsg  = document.getElementById('aiNoLocal');
+    const localCards  = document.getElementById('aiLocalCards');
+    const travelCards = document.getElementById('aiTravelCards');
+    const heading     = document.getElementById('aiLocalHeading');
+    const sub         = document.getElementById('aiLocalSub');
+
+    if (!description) {
+        alert('Please describe what you are looking for first.');
+        return;
+    }
+
+    btn.disabled  = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i> Searching...';
+    resultsDiv.style.display  = 'none';
+    errorDiv.style.display    = 'none';
+    localGroup.style.display  = 'none';
+    travelGroup.style.display = 'none';
+    noLocalMsg.style.display  = 'none';
+    localCards.innerHTML  = '';
+    travelCards.innerHTML = '';
+    spinner.style.display = 'block';
+    spinner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    try {
+        const response = await fetch('/api/ai-photographer-finder', {
+            method:  'POST',
+            headers: {'Content-Type': 'application/json'},
+            body:    JSON.stringify({description: description, region: region}),
+        });
+        const data = await response.json();
+        spinner.style.display = 'none';
+
+        if (data.success) {
+            const local  = data.local_matches  || [];
+            const travel = data.travel_matches || [];
+
+            if (!local.length && !travel.length) {
+                errorText.textContent =
+                    'No photographers matched your description. Try broadening it, '
+                    + 'or browse the full list below.';
+                errorDiv.style.display = 'block';
+            } else {
+                // Did the customer actually ask about location? If not, the
+                // local/travel split is meaningless and we show one plain list.
+                const askedAboutPlace = Boolean(data.location_requested);
+
+                local.forEach(m  => localCards.appendChild(buildMatchCard(m, true)));
+                travel.forEach(m => travelCards.appendChild(buildMatchCard(m, false)));
+
+                if (askedAboutPlace) {
+                    heading.innerHTML =
+                        '<i class="bi bi-house-check me-2" style="color:#6fcf8a;"></i>'
+                        + 'Based in ' + data.location_requested;
+                    sub.textContent =
+                        'These photographers are based where you asked for.';
+                    sub.style.display = 'block';
+
+                    // Only meaningful when a place was actually named.
+                    if (!local.length && travel.length) {
+                        noLocalMsg.style.display = 'block';
+                    }
+                } else {
+                    // No place mentioned -- rank purely on what they did ask for.
+                    heading.innerHTML =
+                        '<i class="bi bi-trophy me-2" style="color:#ffc107;"></i>'
+                        + 'Best matches for you';
+                    sub.style.display = 'none';
+                }
+
+                if (local.length)  localGroup.style.display  = 'block';
+                if (travel.length) travelGroup.style.display = 'block';
+
+                resultsDiv.style.display = 'block';
+                resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        } else {
+            errorText.textContent = data.error
+                || 'AI finder is currently unavailable. Please browse photographers below.';
+            errorDiv.style.display = 'block';
+        }
+
+    } catch (err) {
+        spinner.style.display = 'none';
+        errorText.textContent = 'Network error. Please check your connection and try again.';
+        errorDiv.style.display = 'block';
+        console.error('[AI-FINDER]', err);
+    }
+
+    btn.disabled  = false;
+    btn.innerHTML = '<i class="bi bi-stars me-1"></i> Find My Match';
+}
+
+// Allow Enter key in textarea to trigger search (Shift+Enter for new line)
+document.getElementById('aiDescription').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        runAiFinder();
+    }
+});
+</script>
+{% endblock %}

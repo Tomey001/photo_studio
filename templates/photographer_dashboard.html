@@ -1,0 +1,701 @@
+{% extends 'base.html' %}
+
+{% block title %}My Portfolio — LensCraft Studio{% endblock %}
+
+{% block content %}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% if photographer.profile_image %}
+        <img src="{{ url_for('static', filename='img/photographers/' ~ photographer.profile_image) }}"
+             alt="{{ photographer.name }}"
+             style="width:56px;height:56px;border-radius:50%;object-fit:cover;">
+        {% else %}
+        <div style="width:56px;height:56px;border-radius:50%;background:#0f3460;
+                    display:flex;align-items:center;justify-content:center;">
+            <i class="bi bi-person-circle" style="color:#c5cae9;font-size:1.8rem;"></i>
+        </div>
+        {% endif %}
+        <div>
+            <h2 class="fw-bold mb-0">{{ photographer.name }}</h2>
+            <p class="text-muted mb-0">
+                {% if photographer.is_active %}
+                <span class="badge bg-success">Profile live</span>
+                {% else %}
+                <span class="badge bg-secondary">Hidden by studio</span>
+                {% endif %}
+                {% if photographer.is_available %}
+                <span class="badge bg-primary">Available for bookings</span>
+                {% else %}
+                <span class="badge bg-warning text-dark">Not taking bookings</span>
+                {% endif %}
+            </p>
+        </div>
+    </div>
+    <a href="{{ url_for('photographer_logout') }}" class="btn btn-outline-danger">
+        <i class="bi bi-box-arrow-right me-1"></i>Logout
+    </a>
+</div>
+
+<!-- Summary cards -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="admin-card text-center">
+            <h3 class="fw-bold text-primary">{{ portfolio|length }}</h3>
+            <p class="text-muted mb-0">Portfolio Images</p>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="admin-card text-center">
+            <h3 class="fw-bold" style="color:#ffc107;">
+                {{ photographer.average_rating() }}
+            </h3>
+            <p class="text-muted mb-0">Average Rating</p>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="admin-card text-center">
+            <h3 class="fw-bold text-secondary">{{ ratings|length }}</h3>
+            <p class="text-muted mb-0">Customer Ratings</p>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="admin-card text-center">
+            <h3 class="fw-bold text-success">{{ bookings|length }}</h3>
+            <p class="text-muted mb-0">Bookings</p>
+        </div>
+    </div>
+</div>
+
+<!-- Availability control -->
+<div class="admin-card mb-4"
+     style="border-left:4px solid {% if photographer.is_available %}#0d6efd{% else %}#ffc107{% endif %};">
+    <form method="POST" action="{{ url_for('photographer_toggle_availability') }}">
+        <div class="row g-3 align-items-center">
+
+            <div class="col-md-4">
+                <h6 class="fw-bold mb-1">
+                    <i class="bi bi-toggle-on me-2"></i>Your Availability
+                </h6>
+                <p class="text-muted mb-0" style="font-size:0.85rem;">
+                    Customers see this on your profile. When switched off you
+                    cannot receive new bookings.
+                </p>
+            </div>
+
+            <div class="col-md-3">
+                <div class="form-check form-switch p-3 rounded"
+                     style="background:#f8f9fa; padding-left:3rem !important;">
+                    <input class="form-check-input" type="checkbox"
+                           name="is_available" id="is_available"
+                           {% if photographer.is_available %}checked{% endif %}>
+                    <label class="form-check-label fw-bold" for="is_available">
+                        I am taking bookings
+                    </label>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label fw-bold" style="font-size:0.85rem;">
+                    Note <span class="text-muted fw-normal">(optional)</span>
+                </label>
+                <input type="text" name="availability_note" class="form-control"
+                       maxlength="200" placeholder="e.g. Back on 15 March"
+                       value="{{ photographer.availability_note or '' }}">
+            </div>
+
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-dark w-100">
+                    <i class="bi bi-check-lg me-1"></i>Update
+                </button>
+            </div>
+
+        </div>
+    </form>
+</div>
+
+<!-- Tabs -->
+<ul class="nav nav-tabs mb-4" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" data-bs-toggle="tab"
+                data-bs-target="#portfolio-pane" type="button" role="tab">
+            <i class="bi bi-images me-1"></i>My Portfolio
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab"
+                data-bs-target="#profile-pane" type="button" role="tab">
+            <i class="bi bi-person-gear me-1"></i>My Profile
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab"
+                data-bs-target="#ratings-pane" type="button" role="tab">
+            <i class="bi bi-star me-1"></i>Ratings
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab"
+                data-bs-target="#bookings-pane" type="button" role="tab">
+            <i class="bi bi-calendar-check me-1"></i>Bookings
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab"
+                data-bs-target="#security-pane" type="button" role="tab">
+            <i class="bi bi-shield-lock me-1"></i>Password
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+
+    <!-- ── TAB 1: Portfolio ── -->
+    <div class="tab-pane fade show active" id="portfolio-pane" role="tabpanel">
+        <div class="row g-4">
+
+            <!-- Upload form -->
+            <div class="col-lg-4">
+                <div class="admin-card">
+                    <h5 class="fw-bold mb-3">
+                        <i class="bi bi-cloud-upload me-2"></i>Upload Images
+                    </h5>
+                    <form method="POST" enctype="multipart/form-data"
+                          action="{{ url_for('photographer_portfolio_upload') }}">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Choose Images</label>
+                            <input type="file" name="portfolio_images" class="form-control"
+                                   accept=".jpg,.jpeg,.png,.webp" multiple required>
+                            <div class="form-text">JPG, PNG or WEBP. Max 5 MB each.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">
+                                Title <span class="text-muted fw-normal">(optional)</span>
+                            </label>
+                            <input type="text" name="title" class="form-control"
+                                   placeholder="e.g. Beach Wedding, Accra">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">
+                                Category <span class="text-muted fw-normal">(optional)</span>
+                            </label>
+                            <input type="text" name="category" class="form-control"
+                                   placeholder="e.g. Wedding">
+                        </div>
+                        <button type="submit" class="btn btn-dark w-100">
+                            <i class="bi bi-upload me-2"></i>Upload
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Existing portfolio -->
+            <div class="col-lg-8">
+                <div class="admin-card">
+                    <h5 class="fw-bold mb-3">
+                        <i class="bi bi-images me-2"></i>Your Work
+                        <span class="badge bg-light text-dark ms-1">{{ portfolio|length }}</span>
+                    </h5>
+
+                    {% if portfolio %}
+                    <div class="row g-2">
+                        {% for item in portfolio %}
+                        <div class="col-6 col-md-4">
+                            <div style="position:relative;border-radius:8px;overflow:hidden;">
+                                <img src="{{ url_for('static', filename='img/portfolio/' ~ item.image) }}"
+                                     alt="{{ item.title or 'Portfolio image' }}"
+                                     style="width:100%;aspect-ratio:1/1;object-fit:cover;">
+                                <form method="POST"
+                                      action="{{ url_for('photographer_portfolio_delete', portfolio_id=item.id) }}"
+                                      onsubmit="return confirm('Delete this image? This cannot be undone.');"
+                                      style="position:absolute;top:6px;right:6px;margin:0;">
+                                    <button type="submit" class="btn btn-sm btn-danger"
+                                            style="padding:2px 7px;border-radius:6px;">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                                {% if item.title %}
+                                <div style="position:absolute;bottom:0;left:0;right:0;
+                                            background:rgba(0,0,0,0.65);padding:5px 8px;">
+                                    <p style="margin:0;color:white;font-size:0.72rem;font-weight:600;">
+                                        {{ item.title }}</p>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-center py-5 text-muted">
+                        <i class="bi bi-images" style="font-size:3rem;"></i>
+                        <p class="mt-3 mb-0">No images yet. Upload your work to attract customers.</p>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Images the studio removed, with the reason given -->
+                {% if removed_images %}
+                <div class="admin-card mt-4" style="border-left:4px solid #dc3545;">
+                    <h5 class="fw-bold mb-2">
+                        <i class="bi bi-shield-x me-2 text-danger"></i>Removed by the Studio
+                        <span class="badge bg-danger ms-1">{{ removed_images|length }}</span>
+                    </h5>
+                    <p class="text-muted" style="font-size:0.88rem;">
+                        These images are no longer shown on your public profile.
+                        The reason is under each one. If you disagree, contact the
+                        studio on <strong>{{ config.STUDIO_PHONE }}</strong>.
+                    </p>
+
+                    <div class="row g-3">
+                        {% for item in removed_images %}
+                        <div class="col-6 col-md-4">
+                            <div style="border-radius:8px; overflow:hidden; position:relative;">
+                                <img src="{{ url_for('static', filename='img/portfolio/' ~ item.image) }}"
+                                     alt="Removed image"
+                                     style="width:100%; aspect-ratio:1/1; object-fit:cover;
+                                            filter:grayscale(100%); opacity:0.5;">
+                                <div style="position:absolute; top:6px; left:6px;">
+                                    <span class="badge bg-danger" style="font-size:0.68rem;">Removed</span>
+                                </div>
+                            </div>
+                            {% if item.title %}
+                            <p class="mb-0 mt-2 fw-bold" style="font-size:0.82rem;">{{ item.title }}</p>
+                            {% endif %}
+                            <p class="text-muted mb-0" style="font-size:0.78rem;">
+                                <strong>Reason:</strong> {{ item.removal_reason }}
+                            </p>
+                            {% if item.removed_at %}
+                            <p class="text-muted mb-0" style="font-size:0.72rem;">
+                                {{ item.removed_at.strftime('%d %b %Y') }}
+                            </p>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ── TAB 2: Profile ── -->
+    <div class="tab-pane fade" id="profile-pane" role="tabpanel">
+        <div class="admin-card">
+            <h5 class="fw-bold mb-3">
+                <i class="bi bi-person-gear me-2"></i>Edit Your Profile
+            </h5>
+
+            <form method="POST" enctype="multipart/form-data"
+                  action="{{ url_for('photographer_profile_update') }}">
+                <div class="row g-3">
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Phone Number</label>
+                        <input type="tel" name="phone" class="form-control"
+                               value="{{ photographer.phone or '' }}">
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Years of Experience</label>
+                        <input type="number" name="experience" class="form-control"
+                               min="0" max="70" value="{{ photographer.experience or 0 }}">
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Biography</label>
+                        <textarea name="bio" class="form-control" rows="4"
+                                  placeholder="Tell customers about your experience and style...">{{ photographer.bio or '' }}</textarea>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Services Offered</label>
+                        <div class="p-3 rounded" style="background:#f8f9fa;">
+                            <div class="form-check mb-2 pb-2 border-bottom">
+                                <input class="form-check-input" type="checkbox" id="allSvcP">
+                                <label class="form-check-label fw-bold" for="allSvcP">
+                                    Select all services
+                                </label>
+                            </div>
+                            <div class="row g-2">
+                                {% for opt in all_services %}
+                                <div class="col-md-4 col-6">
+                                    <div class="form-check">
+                                        <input class="form-check-input svcp-check" type="checkbox"
+                                               name="services" value="{{ opt }}"
+                                               id="svcp{{ loop.index }}"
+                                               {% if opt in photographer.services_list() %}checked{% endif %}>
+                                        <label class="form-check-label" for="svcp{{ loop.index }}"
+                                               style="font-size:0.88rem;">{{ opt }}</label>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="form-text">
+                            Customers filter by these, so tick everything you can provide.
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <hr class="my-2">
+                        <h6 class="fw-bold mb-1">
+                            <i class="bi bi-geo-alt me-2" style="color:#0f3460;"></i>
+                            Where You Work
+                        </h6>
+                        <p class="text-muted mb-2" style="font-size:0.86rem;">
+                            Customers search by region, so this decides who finds you.
+                        </p>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Town / City You Are Based In</label>
+                        <input type="text" name="base_town" class="form-control"
+                               placeholder="e.g. Kasoa"
+                               value="{{ photographer.base_town or '' }}">
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Region You Are Based In</label>
+                        <select name="base_region" class="form-select">
+                            <option value="">-- Select region --</option>
+                            {% for r in all_regions %}
+                            <option value="{{ r }}"
+                                {% if photographer.base_region == r %}selected{% endif %}>
+                                {{ r }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <div class="form-check p-3 rounded"
+                             style="background:#e8f5e9; padding-left:3rem !important;">
+                            <input class="form-check-input" type="checkbox"
+                                   name="covers_nationwide" id="nationwideP"
+                                   {% if photographer.covers_nationwide %}checked{% endif %}>
+                            <label class="form-check-label fw-bold" for="nationwideP">
+                                I am available anywhere in Ghana
+                            </label>
+                            <div class="form-text mb-0">
+                                Tick this and you appear for customers in every region,
+                                wherever you are based.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Regions You Travel To</label>
+                        <div class="p-3 rounded" style="background:#f8f9fa;">
+                            <div class="row g-2">
+                                {% for r in all_regions %}
+                                <div class="col-md-3 col-6">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox"
+                                               name="locations" value="{{ r }}"
+                                               id="preg{{ loop.index }}"
+                                               {% if r in photographer.locations_list() %}checked{% endif %}>
+                                        <label class="form-check-label" for="preg{{ loop.index }}"
+                                               style="font-size:0.85rem;">{{ r }}</label>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="form-text">
+                            Only needed if you did not tick "anywhere in Ghana" above.
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Photography Styles</label>
+                        <div class="p-3 rounded" style="background:#f8f9fa;">
+                            <div class="row g-2">
+                                {% for opt in all_styles %}
+                                <div class="col-md-4 col-6">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox"
+                                               name="styles" value="{{ opt }}"
+                                               id="styp{{ loop.index }}"
+                                               {% if opt in photographer.styles_list() %}checked{% endif %}>
+                                        <label class="form-check-label" for="styp{{ loop.index }}"
+                                               style="font-size:0.88rem;">{{ opt }}</label>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="form-text">Tick the styles that describe your work.</div>
+                    </div>
+
+                    <div class="col-12">
+                        <!-- The wording changes depending on whether they
+                             already have a photo, and the current one is shown
+                             so they know what they are replacing. -->
+                        <label class="form-label fw-bold">
+                            {% if photographer.profile_image %}
+                            Change Profile Photo
+                            {% else %}
+                            Add a Profile Photo
+                            {% endif %}
+                        </label>
+
+                        {% if photographer.profile_image %}
+                        <div class="d-flex align-items-center gap-3 mb-2">
+                            <img src="{{ url_for('static', filename='img/photographers/' ~ photographer.profile_image) }}"
+                                 alt="Your current profile photo"
+                                 style="width:64px; height:64px; border-radius:50%;
+                                        object-fit:cover; border:2px solid #dee2e6;">
+                            <small class="text-muted">
+                                This is your current photo. Choosing a new file
+                                below will replace it.
+                            </small>
+                        </div>
+                        {% else %}
+                        <div class="d-flex align-items-center gap-3 mb-2">
+                            <div style="width:64px; height:64px; border-radius:50%;
+                                        background:#0f3460; display:flex;
+                                        align-items:center; justify-content:center;">
+                                <i class="bi bi-person-circle"
+                                   style="color:#c5cae9; font-size:2rem;"></i>
+                            </div>
+                            <small class="text-muted">
+                                You have no photo yet. Profiles with a photo get
+                                noticed more by customers.
+                            </small>
+                        </div>
+                        {% endif %}
+
+                        <input type="file" name="profile_image" class="form-control"
+                               accept=".jpg,.jpeg,.png,.webp">
+                        <div class="form-text">
+                            JPG, PNG or WEBP. Max 5 MB. Square images look best.
+                            {% if photographer.profile_image %}
+                            Leave this empty to keep your current photo.
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-dark px-5 py-2 fw-bold">
+                            <i class="bi bi-check-lg me-2"></i>Save Changes
+                        </button>
+                    </div>
+
+                </div>
+            </form>
+
+            <div class="alert alert-info mt-4 mb-0" style="font-size:0.88rem;">
+                <i class="bi bi-info-circle me-2"></i>
+                Your name, username and profile visibility are managed by the studio.
+                Contact them on <strong>{{ config.STUDIO_PHONE }}</strong> to change these.
+            </div>
+        </div>
+    </div>
+
+    <!-- ── TAB 3: Ratings ── -->
+    <div class="tab-pane fade" id="ratings-pane" role="tabpanel">
+        <div class="admin-card">
+            <h5 class="fw-bold mb-3">
+                <i class="bi bi-star-fill me-2" style="color:#ffc107;"></i>Customer Ratings
+            </h5>
+
+            {% if ratings %}
+            <p class="mb-4">
+                <span style="color:#ffc107;font-size:1.3rem;">
+                    {% for i in range(photographer.full_stars()) %}<i class="bi bi-star-fill"></i>{% endfor %}{% for i in range(5 - photographer.full_stars()) %}<i class="bi bi-star"></i>{% endfor %}
+                </span>
+                <span class="fw-bold ms-2">{{ photographer.average_rating() }} out of 5</span>
+                <span class="text-muted">— from {{ ratings|length }} rating{{ 's' if ratings|length != 1 else '' }}</span>
+            </p>
+
+            {% for r in ratings %}
+            <div class="border-bottom pb-3 mb-3">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <span style="color:#ffc107;">
+                            {% for i in range(r.rating) %}<i class="bi bi-star-fill"></i>{% endfor %}{% for i in range(5 - r.rating) %}<i class="bi bi-star"></i>{% endfor %}
+                        </span>
+                        <strong class="ms-2">{{ r.customer_name }}</strong>
+                    </div>
+                    <small class="text-muted">
+                        {{ r.created_at.strftime('%d %b %Y') if r.created_at else '' }}
+                    </small>
+                </div>
+                {% if r.comment %}
+                <p class="mb-0 mt-2 text-muted">"{{ r.comment }}"</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+
+            {% else %}
+            <div class="text-center py-5 text-muted">
+                <i class="bi bi-star" style="font-size:3rem;"></i>
+                <p class="mt-3 mb-0">No ratings yet. They will appear here once customers rate you.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ── TAB 4: Bookings ── -->
+    <div class="tab-pane fade" id="bookings-pane" role="tabpanel">
+        <div class="admin-card">
+            <h5 class="fw-bold mb-3">
+                <i class="bi bi-calendar-check me-2"></i>Your Bookings
+            </h5>
+
+            {% if bookings %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>#</th><th>Customer</th><th>Service</th>
+                            <th>Date</th><th>Time</th><th>Status</th><th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for b in bookings %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>
+                                <strong>{{ b.customer_name }}</strong><br>
+                                <small class="text-muted">
+                                    <a href="tel:{{ b.phone }}" class="text-decoration-none text-muted">
+                                        <i class="bi bi-telephone me-1"></i>{{ b.phone }}</a>
+                                </small><br>
+                                <small class="text-muted">
+                                    <a href="mailto:{{ b.email }}" class="text-decoration-none text-muted">
+                                        <i class="bi bi-envelope me-1"></i>{{ b.email }}</a>
+                                </small>
+                                {% if b.notes %}
+                                <div class="text-muted mt-1" style="font-size:0.8rem;">
+                                    <strong>Note:</strong> {{ b.notes }}
+                                </div>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {{ b.service }}<br>
+                                <small class="text-muted">
+                                    {% if b.shoot_type == 'outdoor' %}
+                                    <i class="bi bi-tree me-1"></i>Outdoor
+                                    {% else %}
+                                    <i class="bi bi-house-door me-1"></i>Studio
+                                    {% endif %}
+                                </small>
+                            </td>
+                            <td>{{ b.date }}</td>
+                            <td>{{ b.time }}</td>
+                            <td>
+                                <span class="status-badge badge-{{ b.status }}">
+                                    {{ b.status | capitalize }}
+                                </span>
+                            </td>
+                            <td>
+                                <!-- A photographer can only act on their own
+                                     bookings; the server checks this too. -->
+                                {% if b.status == 'pending' %}
+                                <form method="POST"
+                                      action="{{ url_for('photographer_update_booking', appointment_id=b.id, status='approved') }}"
+                                      style="display:inline;">
+                                    <button type="submit" class="btn btn-sm btn-success mb-1"
+                                            title="Accept this booking">
+                                        <i class="bi bi-check-lg"></i>
+                                    </button>
+                                </form>
+                                <form method="POST"
+                                      action="{{ url_for('photographer_update_booking', appointment_id=b.id, status='rejected') }}"
+                                      onsubmit="return confirm('Decline this booking? The customer will be notified.');"
+                                      style="display:inline;">
+                                    <button type="submit" class="btn btn-sm btn-danger mb-1"
+                                            title="Decline this booking">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </form>
+                                {% elif b.status == 'approved' %}
+                                <form method="POST"
+                                      action="{{ url_for('photographer_update_booking', appointment_id=b.id, status='completed') }}"
+                                      onsubmit="return confirm('Mark this session complete? The customer will be emailed a review link.');"
+                                      style="display:inline;">
+                                    <button type="submit" class="btn btn-sm btn-secondary mb-1"
+                                            title="Mark as completed">
+                                        <i class="bi bi-check2-all"></i> Done
+                                    </button>
+                                </form>
+                                {% else %}
+                                <small class="text-muted">&mdash;</small>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5 text-muted">
+                <i class="bi bi-calendar-x" style="font-size:3rem;"></i>
+                <p class="mt-3 mb-0">No bookings yet.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ── TAB 5: Password ── -->
+    <div class="tab-pane fade" id="security-pane" role="tabpanel">
+        <div class="admin-card" style="max-width:520px;">
+            <h5 class="fw-bold mb-3">
+                <i class="bi bi-shield-lock me-2"></i>Change Your Password
+            </h5>
+
+            <form method="POST" action="{{ url_for('photographer_change_password') }}">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Current Password</label>
+                    <input type="password" name="current_password" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">New Password</label>
+                    <input type="password" name="new_password" class="form-control"
+                           minlength="6" required>
+                    <div class="form-text">At least 6 characters.</div>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-bold">Confirm New Password</label>
+                    <input type="password" name="confirm_password" class="form-control"
+                           minlength="6" required>
+                </div>
+                <button type="submit" class="btn btn-dark px-4">
+                    <i class="bi bi-check-lg me-2"></i>Update Password
+                </button>
+            </form>
+        </div>
+    </div>
+
+</div>
+
+<div class="mt-4 text-center">
+    <a href="{{ url_for('photographer_profile', photographer_id=photographer.id) }}"
+       target="_blank" class="text-decoration-none text-muted" style="font-size:0.88rem;">
+        <i class="bi bi-box-arrow-up-right me-1"></i>View your public profile
+    </a>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // "Select all services" on the photographer's own profile tab.
+    const allSvcP = document.getElementById('allSvcP');
+    const svcPBoxes = document.querySelectorAll('.svcp-check');
+    if (allSvcP) {
+        allSvcP.addEventListener('change', function () {
+            svcPBoxes.forEach(function (b) { b.checked = allSvcP.checked; });
+        });
+        svcPBoxes.forEach(function (b) {
+            b.addEventListener('change', function () {
+                allSvcP.checked = Array.from(svcPBoxes).every(function (x) { return x.checked; });
+            });
+        });
+    }
+</script>
+{% endblock %}

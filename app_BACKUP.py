@@ -1,10 +1,9 @@
 # app.py — Flask backend (appointments + admin + email + reminders + photographers)
 
-from flask import (Flask, render_template, request, redirect, url_for, flash,
-                   session, jsonify, send_from_directory)
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_mail import Mail, Message
-from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 from config import Config
 from datetime import datetime, timedelta, date
@@ -65,15 +64,6 @@ class Appointment(db.Model):
     review_token  = db.Column(db.String(64),  nullable=True)
     reviewed      = db.Column(db.Boolean,     nullable=False, default=False)
 
-    # ── Shoot type: "studio" (indoor) or "outdoor" ────────────────────────
-    # This drives the booking conflict rules:
-    #   studio  -> uses the physical studio room, which only one booking can
-    #              occupy at a time, no matter which photographer it is
-    #   outdoor -> the photographer travels, so the studio room stays free and
-    #              only that photographer's own time is consumed
-    # Defaults to "studio" so every existing booking keeps its old behaviour.
-    shoot_type    = db.Column(db.String(20), nullable=False, default="studio")
-
     # ── NEW: optional link to a photographer from the network ────────────
     # nullable=True is important — every existing booking, and every booking
     # made directly with the studio, simply leaves this as NULL. Nothing
@@ -112,12 +102,8 @@ class Review(db.Model):
 
 class Photographer(db.Model):
     """
-    A photographer profile created by the administrator.
-
-    Photographers now have their own login (username + password) so they can
-    manage their own portfolio, but the ADMIN still creates the account and
-    controls whether the profile is publicly visible. This keeps quality
-    control with the studio while giving photographers day-to-day autonomy.
+    A photographer profile created and managed by the administrator.
+    Photographers do NOT have accounts — admin controls everything.
     """
     __tablename__ = "photographers"
 
@@ -135,54 +121,8 @@ class Photographer(db.Model):
     is_active     = db.Column(db.Boolean,       nullable=False, default=True)
     created_at    = db.Column(db.DateTime,      default=datetime.utcnow)
 
-    # ── Photographer login credentials ───────────────────────────────────
-    # Password is stored as a Werkzeug hash, never plain text — the same
-    # approach used for the admin account.
-    username      = db.Column(db.String(50),   unique=True, nullable=True)
-    password      = db.Column(db.String(200),  nullable=True)
-
-    # -- Availability, controlled by the photographer themselves -----------
-    # is_active  = the STUDIO decides whether the profile is on the platform
-    # is_available = the PHOTOGRAPHER decides whether they are taking bookings
-    # Keeping these separate matters: a photographer going on leave should not
-    # need the admin, and the admin suspending someone should not look like
-    # the photographer chose to stop working.
-    is_available      = db.Column(db.Boolean, nullable=False, default=True)
-    availability_note = db.Column(db.String(200), nullable=True)
-
-    # -- Where they are based vs where they will travel --------------------
-    # A photographer based in Kasoa may happily shoot anywhere in Ghana, so
-    # "based" and "covers" are two different questions. Storing them together
-    # made it impossible to answer either one properly.
-    #   base_town  -> free text, e.g. "Kasoa"
-    #   base_region-> one of GHANA_REGIONS, e.g. "Central"
-    #   locations  -> the regions they will travel to (existing column)
-    #   covers_nationwide -> shortcut meaning "anywhere in Ghana"
-    base_town         = db.Column(db.String(100), nullable=True)
-    base_region       = db.Column(db.String(50),  nullable=True)
-    covers_nationwide = db.Column(db.Boolean, nullable=False, default=False)
-
-    # True whenever the ADMIN sets or resets the password, meaning the current
-    # password is temporary. The photographer is forced to choose their own
-    # before they can use any other part of the portal. Set back to False the
-    # moment they choose one.
-    must_change_password = db.Column(db.Boolean, nullable=False, default=False)
-
-    # ── Ghana Card details (identity verification) ───────────────────────
-    # The card NUMBER is stored here. The card IMAGE filename points to a file
-    # kept OUTSIDE the static folder, so it can never be served publicly —
-    # it is only reachable through an admin-authenticated route.
-    ghana_card_number = db.Column(db.String(30),  nullable=True)
-    ghana_card_image  = db.Column(db.String(200), nullable=True)
-
     # Relationship — one photographer has many portfolio images
     portfolio     = db.relationship("PhotographerPortfolio",
-                                    backref="photographer",
-                                    lazy=True,
-                                    cascade="all, delete-orphan")
-
-    # Relationship — one photographer has many star ratings
-    ratings       = db.relationship("PhotographerRating",
                                     backref="photographer",
                                     lazy=True,
                                     cascade="all, delete-orphan")
@@ -199,62 +139,10 @@ class Photographer(db.Model):
         """Return styles as a Python list."""
         return [s.strip() for s in (self.styles or "").split(",") if s.strip()]
 
-    def covers_region(self, region):
-        """True if this photographer will work in the given region."""
-        if not region:
-            return True
-        if self.covers_nationwide:
-            return True
-        if self.base_region and self.base_region == region:
-            return True
-        return region in self.locations_list()
-
-    def is_based_in(self, region):
-        """True if the photographer is actually based in that region."""
-        return bool(region) and self.base_region == region
-
-    def base_label(self):
-        """Readable base location, e.g. 'Kasoa, Central'."""
-        if self.base_town and self.base_region:
-            return f"{self.base_town}, {self.base_region}"
-        return self.base_town or self.base_region or ""
-
-    def coverage_label(self):
-        """Readable coverage summary for display."""
-        if self.covers_nationwide:
-            return "Travels anywhere in Ghana"
-        regions = self.locations_list()
-        if not regions:
-            return "Coverage not specified"
-        if len(regions) <= 3:
-            return "Covers " + ", ".join(regions)
-        return f"Covers {len(regions)} regions"
-
-    def active_portfolio(self):
-        """Portfolio images still visible -- excludes any the studio removed."""
-        return [p for p in self.portfolio if not p.is_removed]
-
-    def average_rating(self):
-        """Average star rating rounded to 1 decimal place. 0 when unrated."""
-        if not self.ratings:
-            return 0
-        return round(sum(r.rating for r in self.ratings) / len(self.ratings), 1)
-
-    def rating_count(self):
-        """How many customers have rated this photographer."""
-        return len(self.ratings)
-
-    def full_stars(self):
-        """Whole number of filled stars to draw, 0–5."""
-        return int(round(self.average_rating()))
-
     def to_dict(self):
         """
         Return a plain dictionary — used when passing photographer data
         to the OpenAI API for AI matching. Keeps sensitive info out.
-
-        Note: username, password and Ghana Card details are deliberately
-        excluded — they must never leave the server.
         """
         return {
             "id":            self.id,
@@ -265,28 +153,13 @@ class Photographer(db.Model):
             "locations":     self.locations_list(),
             "styles":        self.styles_list(),
             "experience":    self.experience or 0,
-            "rating":        self.average_rating(),
-            "available":     self.is_available,
-            "based_in":      self.base_label(),
-            "base_town":     self.base_town or "",
-            "base_region":   self.base_region or "",
-            "covers":        ("Nationwide" if self.covers_nationwide
-                              else self.locations_list()),
         }
 
 
 class PhotographerPortfolio(db.Model):
     """
     A single portfolio image belonging to a photographer.
-
-    Photographers upload and delete their own images. The ADMIN no longer
-    uploads on their behalf, but can MODERATE: if an image is inappropriate
-    the admin removes it with a written reason, which is emailed to the
-    photographer.
-
-    Removal is a SOFT delete. The row and the file are kept so there is an
-    audit trail of what was removed and why -- important if the photographer
-    disputes the decision. Removed images are hidden from the public profile.
+    Admin uploads images; they are stored in static/img/portfolio/.
     """
     __tablename__ = "photographer_portfolio"
 
@@ -295,37 +168,6 @@ class PhotographerPortfolio(db.Model):
     image           = db.Column(db.String(200), nullable=False)   # filename
     title           = db.Column(db.String(100), nullable=True)
     category        = db.Column(db.String(50),  nullable=True)
-    created_at      = db.Column(db.DateTime,    default=datetime.utcnow)
-
-    # -- Admin moderation -------------------------------------------------
-    is_removed      = db.Column(db.Boolean,     nullable=False, default=False)
-    removal_reason  = db.Column(db.Text,        nullable=True)
-    removed_at      = db.Column(db.DateTime,    nullable=True)
-
-
-class PhotographerRating(db.Model):
-    """
-    NEW: A star rating left by a customer on a photographer's public profile.
-
-    Anti-abuse measures (honest limits, see the submit route):
-      - one rating per IP address per photographer
-      - rating must be a whole number 1–5
-      - comment length is capped
-
-    These reduce casual spam but do NOT make ratings verified — anyone with
-    a new IP can still rate. A production system would require the customer
-    to have completed a booking with that photographer first.
-    """
-    __tablename__ = "photographer_ratings"
-
-    id              = db.Column(db.Integer,     primary_key=True)
-    photographer_id = db.Column(db.Integer,
-                                db.ForeignKey("photographers.id"),
-                                nullable=False)
-    customer_name   = db.Column(db.String(100), nullable=False)
-    rating          = db.Column(db.Integer,     nullable=False)   # 1 to 5
-    comment         = db.Column(db.Text,        nullable=True)
-    ip_address      = db.Column(db.String(45),  nullable=True)    # 45 chars fits IPv6
     created_at      = db.Column(db.DateTime,    default=datetime.utcnow)
 
 
@@ -346,86 +188,6 @@ class PhotographerEnquiry(db.Model):
     message    = db.Column(db.Text,        nullable=True)
     created_at = db.Column(db.DateTime,    default=datetime.utcnow)
     reviewed   = db.Column(db.Boolean,     nullable=False, default=False)
-
-    # ── Ghana Card (identity verification) ───────────────────────────────
-    # Required so a photographer can be traced if a dispute arises.
-    # The image is stored OUTSIDE static/ and served only to a logged-in admin.
-    ghana_card_number = db.Column(db.String(30),  nullable=True)
-    ghana_card_image  = db.Column(db.String(200), nullable=True)
-    consent_given     = db.Column(db.Boolean, nullable=False, default=False)
-
-
-# ============================================================
-# SHARED OPTION LISTS
-# ============================================================
-# These are defined once and used by the booking form, the photographer
-# enquiry form and the admin photographer form.
-#
-# Why it matters: services used to be free text, so the same service could be
-# stored as "wedding", "Weddings" or "Wedding Photography". The search filter
-# and the AI matcher both read those strings, so inconsistent spelling quietly
-# broke matching. A fixed list keeps the data clean.
-
-PHOTOGRAPHY_SERVICES = [
-    "Portrait Session",
-    "Wedding Photography",
-    "Corporate Headshots",
-    "Birthday & Anniversaries",
-    "Product Photography",
-    "Graduation Photos",
-    "Events & Celebrations",
-    "Family Milestones",
-    "Funerals",
-]
-
-# Ghana's 16 administrative regions. Using a fixed list here does the same job
-# as the fixed services list: it makes "where do you cover" searchable, instead
-# of one photographer writing "Accra" and another "Gt Accra".
-GHANA_REGIONS = [
-    "Greater Accra",
-    "Ashanti",
-    "Central",
-    "Eastern",
-    "Western",
-    "Western North",
-    "Volta",
-    "Oti",
-    "Northern",
-    "North East",
-    "Savannah",
-    "Upper East",
-    "Upper West",
-    "Bono",
-    "Bono East",
-    "Ahafo",
-]
-
-PHOTOGRAPHY_STYLES = [
-    "Traditional",
-    "Candid",
-    "Documentary",
-    "Editorial",
-    "Cinematic",
-    "Natural / Outdoor",
-    "Studio / Controlled Lighting",
-    "Black & White",
-    "Vibrant & Colourful",
-    "Minimalist",
-    "Vintage / Retro",
-    "Fine Art",
-]
-
-
-def _collect_checkboxes(field_name, allowed):
-    """
-    Reads a group of checkboxes and returns them as a comma-separated string.
-
-    Only values that appear in `allowed` are kept, so someone editing the page
-    in their browser cannot inject arbitrary text into the database.
-    """
-    chosen = request.form.getlist(field_name)
-    clean  = [v for v in chosen if v in allowed]
-    return ", ".join(clean)
 
 
 # ============================================================
@@ -476,157 +238,6 @@ def _delete_image_file(filename, subfolder):
             os.remove(path)
     except Exception:
         pass
-
-
-def _save_private_file(file_storage, subfolder):
-    """
-    Saves a sensitive upload (currently Ghana Card images) to a folder that
-    sits OUTSIDE the static directory.
-
-    This matters: anything inside static/ is served publicly by Flask, so a
-    Ghana Card stored there could be viewed by anyone who guessed the URL.
-    Files saved here are only reachable through an admin-authenticated route.
-    """
-    if not file_storage or file_storage.filename == "":
-        return None
-    if not _allowed_image(file_storage.filename):
-        return None
-
-    ext      = secure_filename(file_storage.filename).rsplit(".", 1)[-1].lower()
-    filename = f"{uuid.uuid4().hex}.{ext}"
-    folder   = os.path.join(app.root_path, "private_uploads", subfolder)
-    os.makedirs(folder, exist_ok=True)
-    file_storage.save(os.path.join(folder, filename))
-    return filename
-
-
-def _delete_private_file(filename, subfolder):
-    """Removes a file from the private uploads folder. Ignores errors."""
-    if not filename:
-        return
-    try:
-        path = os.path.join(app.root_path, "private_uploads", subfolder, filename)
-        if os.path.isfile(path):
-            os.remove(path)
-    except Exception:
-        pass
-
-
-def photographer_login_required(f):
-    """
-    Protects photographer-only pages. Kept completely separate from the admin
-    session, so a photographer can never reach admin pages and vice versa.
-
-    Also enforces the temporary-password rule: if the admin issued or reset
-    the password, the photographer is sent to the "choose your password" page
-    and cannot use anything else until they do.
-
-    The change-password and logout routes are exempt — without that exemption
-    the redirect would loop forever, because the page that fixes the problem
-    would itself be blocked.
-    """
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if "photographer_logged_in" not in session:
-            flash("Please log in to manage your portfolio.", "warning")
-            return redirect(url_for("photographer_login"))
-
-        # Routes that must stay reachable while a password change is pending.
-        exempt = {"photographer_force_password",
-                  "photographer_change_password",
-                  "photographer_logout"}
-
-        if request.endpoint not in exempt:
-            photographer = current_photographer()
-            if photographer and photographer.must_change_password:
-                return redirect(url_for("photographer_force_password"))
-
-        return f(*args, **kwargs)
-    return decorated_function
-
-
-def current_photographer():
-    """Returns the logged-in Photographer object, or None."""
-    pid = session.get("photographer_id")
-    if not pid:
-        return None
-    return db.session.get(Photographer, pid)
-
-
-def find_booking_conflict(date_val, time_val, shoot_type, photographer_id,
-                          exclude_id=None):
-    """
-    Decides whether a requested slot clashes with an existing booking.
-
-    LensCraft has two kinds of resource, and a booking can consume one or both:
-
-      1. THE STUDIO ROOM — a single physical space. Only consumed by an
-         indoor ("studio") shoot. Two studio shoots can never share a slot,
-         even with different photographers, because there is only one room.
-
-      2. A PHOTOGRAPHER — consumed by every booking, indoor or outdoor,
-         because one person cannot be in two places at once. When no
-         photographer is chosen, the studio's own team is the resource.
-
-    So an outdoor shoot with Photographer A at 10:00 does NOT block an indoor
-    shoot with Photographer B at 10:00 — different room, different person.
-    But it DOES block anything else that needs Photographer A at 10:00.
-
-    Returns a human-readable reason string when there is a clash, or None.
-    """
-    # Only pending and approved bookings hold a slot. Rejected and completed
-    # ones have released it.
-    base = (Appointment.query
-            .filter_by(date=date_val, time=time_val)
-            .filter(Appointment.status.in_(["pending", "approved"])))
-
-    # When editing an existing booking, don't let it clash with itself.
-    if exclude_id:
-        base = base.filter(Appointment.id != exclude_id)
-
-    existing = base.all()
-
-    for appt in existing:
-        # ── Rule 1: the physical studio room ──────────────────────────────
-        if shoot_type == "studio" and appt.shoot_type == "studio":
-            return ("The studio is already booked for an indoor session at "
-                    f"{time_val} on {date_val}. Please choose another time, "
-                    "or select an outdoor shoot.")
-
-        # ── Rule 2: the same photographer ─────────────────────────────────
-        # Both None means both are the studio's own team — also a clash.
-        if appt.photographer_id == photographer_id:
-            if photographer_id is None:
-                return (f"The studio team is already booked at {time_val} on "
-                        f"{date_val}. Please choose another time.")
-            who = appt.photographer.name if appt.photographer else "That photographer"
-            return (f"{who} is already booked at {time_val} on {date_val}. "
-                    "Please choose another time or another photographer.")
-
-    return None
-
-
-def get_unavailable_times(date_val, shoot_type, photographer_id):
-    """
-    Returns the list of time slots that cannot be booked on a given date,
-    for the chosen shoot type and photographer. Used by the booking form to
-    grey out slots in real time. Mirrors find_booking_conflict exactly.
-    """
-    taken = (Appointment.query
-             .filter_by(date=date_val)
-             .filter(Appointment.status.in_(["pending", "approved"]))
-             .all())
-
-    unavailable = set()
-    for appt in taken:
-        # Studio room clash
-        if shoot_type == "studio" and appt.shoot_type == "studio":
-            unavailable.add(appt.time)
-        # Same photographer clash
-        elif appt.photographer_id == photographer_id:
-            unavailable.add(appt.time)
-
-    return sorted(unavailable)
 
 
 # ============================================================
@@ -769,262 +380,13 @@ def send_admin_new_appointment_email(appointment: Appointment):
     _send_best_effort(msg)
 
 
-def send_portfolio_removal_email(item):
+def send_photographer_welcome_email(photographer):
     """
-    NEW: Tells a photographer that the studio removed one of their portfolio
-    images, and why.
+    NEW: Sent to a photographer when the admin creates their profile,
+    confirming they are now part of the LensCraft network.
 
-    Being specific about the reason matters -- a vague "your image was removed"
-    leaves the photographer unable to avoid repeating the problem, and gives
-    them nothing to respond to if they disagree.
-    """
-    photographer = item.photographer
-    if not photographer or not photographer.email:
-        return False
-
-    base_url    = (app.config.get("BASE_URL") or "http://127.0.0.1:5000").rstrip("/")
-    portal_url  = f"{base_url}/photographer/dashboard"
-    image_label = item.title or "Untitled image"
-
-    sender = app.config.get("MAIL_DEFAULT_SENDER") or app.config.get("MAIL_USERNAME")
-    msg = Message(
-        subject="A portfolio image was removed - LensCraft Studio",
-        recipients=[photographer.email],
-        sender=sender,
-    )
-
-    msg.body = (
-        f"Hello {photographer.name},\n\n"
-        "One of your portfolio images has been removed from your LensCraft "
-        "profile by the studio.\n\n"
-        f"Image:\t{image_label}\n"
-        f"Reason:\t{item.removal_reason}\n\n"
-        "The image is no longer shown on your public profile. All your other "
-        "images are unaffected, and you can upload replacements at any time "
-        f"from your portal:\n{portal_url}\n\n"
-        "If you believe this was a mistake, please contact the studio on "
-        f"{app.config.get('STUDIO_PHONE', '0540750090')}.\n\n"
-        "Regards,\nLensCraft Studio\n"
-    )
-
-    msg.html = f"""
-    <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
-    <body style="margin:0;padding:0;background-color:#f0f0f0;font-family:Arial,sans-serif;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f0f0;padding:30px 0;">
-    <tr><td align="center">
-    <table width="600" cellpadding="0" cellspacing="0"
-           style="max-width:600px;width:100%;border-radius:12px;overflow:hidden;
-                  box-shadow:0 4px 20px rgba(0,0,0,0.3);">
-
-      <tr><td style="background-color:#c5cae9;padding:28px 30px;text-align:center;">
-        <p style="margin:0;font-size:1.5rem;font-weight:bold;color:#1a1a2e;letter-spacing:0.5px;">
-          &#128247; LensCraft Studio
-        </p>
-      </td></tr>
-
-      <tr><td style="background-color:#1a1a2e;padding:32px 30px;">
-
-        <h2 style="color:#ff9800;margin:0 0 16px 0;font-size:1.2rem;">
-          &#9888; A portfolio image was removed
-        </h2>
-
-        <p style="color:#ffffff;font-size:1rem;margin:0 0 12px 0;">
-          Hello <strong style="color:#ffffff;">{photographer.name}</strong>,
-        </p>
-
-        <p style="color:#cccccc;font-size:0.95rem;margin:0 0 24px 0;line-height:1.6;">
-          The studio has removed one of your portfolio images from your public
-          profile. The details are below.
-        </p>
-
-        <div style="background-color:#2a2a3e;border-left:4px solid #ff9800;
-                    border-radius:8px;padding:20px 24px;margin-bottom:20px;">
-          <p style="margin:0 0 12px 0;font-size:1rem;font-weight:bold;color:#ffffff;
-                     padding-bottom:10px;border-bottom:2px solid #ff9800;">
-            Removal Details
-          </p>
-          <table width="100%" cellpadding="0" cellspacing="0">
-            <tr>
-              <td style="padding:8px 0;color:#888888;font-size:0.9rem;width:30%;">Image:</td>
-              <td style="padding:8px 0;color:#ffffff;font-weight:bold;font-size:0.9rem;">
-                {image_label}</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 0;color:#888888;font-size:0.9rem;vertical-align:top;">Reason:</td>
-              <td style="padding:8px 0;color:#ffcc80;font-size:0.9rem;line-height:1.6;">
-                {item.removal_reason}</td>
-            </tr>
-          </table>
-        </div>
-
-        <div style="background-color:#15263b;border-radius:8px;padding:16px 20px;margin-bottom:20px;">
-          <p style="margin:0 0 8px 0;font-size:0.95rem;">
-            <span>&#128204;</span>
-            <strong style="color:#8fb8e0;"> What this means:</strong>
-          </p>
-          <p style="margin:0;color:#a9c7e8;font-size:0.9rem;line-height:1.8;">
-            &#10004; Only this image was removed -- the rest of your portfolio is unaffected<br>
-            &#10004; Your profile and bookings continue as normal<br>
-            &#10004; You can upload a replacement image at any time
-          </p>
-        </div>
-
-        <div style="text-align:center;margin:24px 0;">
-          <a href="{portal_url}"
-             style="display:inline-block;background-color:#28a745;color:#ffffff;
-                    text-decoration:none;font-weight:bold;font-size:0.95rem;
-                    padding:13px 32px;border-radius:8px;">
-            Go to My Portal
-          </a>
-        </div>
-
-        <p style="color:#aaaaaa;font-size:0.88rem;margin:0;line-height:1.5;">
-          If you believe this was a mistake, please contact the studio on
-          <strong style="color:#ffffff;">{app.config.get('STUDIO_PHONE', '0540750090')}</strong>
-          and we will review it with you.
-        </p>
-
-      </td></tr>
-
-      <tr><td style="background-color:#c5cae9;padding:16px 30px;text-align:center;">
-        <p style="margin:0;font-size:0.82rem;color:#1a1a2e;">
-          &#169; 2026 LensCraft Studio. All rights reserved.
-        </p>
-      </td></tr>
-
-    </table></td></tr></table></body></html>"""
-
-    return _send_best_effort(msg)
-
-
-def send_photographer_credentials_email(photographer, plain_password):
-    """
-    NEW: Sent when the admin creates a login for an existing photographer,
-    or resets a forgotten password.
-
-    Separate from the welcome email because the photographer is already on
-    the network — this is purely about account access.
-    """
-    if not photographer.email:
-        return False
-
-    base_url  = (app.config.get("BASE_URL") or "http://127.0.0.1:5000").rstrip("/")
-    login_url = f"{base_url}/photographer/login"
-
-    sender = app.config.get("MAIL_DEFAULT_SENDER") or app.config.get("MAIL_USERNAME")
-    msg = Message(
-        subject="Your LensCraft Portal Login Details",
-        recipients=[photographer.email],
-        sender=sender,
-    )
-
-    msg.body = (
-        f"Hello {photographer.name},\n\n"
-        "Your login details for the LensCraft photographer portal are below.\n\n"
-        f"Username:\t{photographer.username}\n"
-        f"Password:\t{plain_password}\n"
-        f"Log in here:\t{login_url}\n\n"
-        "Please change this password after you log in.\n"
-        "From the portal you can upload portfolio images, update your profile "
-        "and see your bookings and ratings.\n\n"
-        "Regards,\nLensCraft Studio\n"
-    )
-
-    msg.html = f"""
-    <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
-    <body style="margin:0;padding:0;background-color:#f0f0f0;font-family:Arial,sans-serif;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f0f0;padding:30px 0;">
-    <tr><td align="center">
-    <table width="600" cellpadding="0" cellspacing="0"
-           style="max-width:600px;width:100%;border-radius:12px;overflow:hidden;
-                  box-shadow:0 4px 20px rgba(0,0,0,0.3);">
-
-      <tr><td style="background-color:#c5cae9;padding:28px 30px;text-align:center;">
-        <p style="margin:0;font-size:1.5rem;font-weight:bold;color:#1a1a2e;letter-spacing:0.5px;">
-          &#128247; LensCraft Studio
-        </p>
-      </td></tr>
-
-      <tr><td style="background-color:#1a1a2e;padding:32px 30px;">
-
-        <h2 style="color:#ffc107;margin:0 0 16px 0;font-size:1.2rem;">
-          &#128273; Your Portal Login Details
-        </h2>
-
-        <p style="color:#ffffff;font-size:1rem;margin:0 0 12px 0;">
-          Hello <strong style="color:#ffffff;">{photographer.name}</strong>,
-        </p>
-
-        <p style="color:#cccccc;font-size:0.95rem;margin:0 0 24px 0;line-height:1.6;">
-          Here are your login details for the LensCraft photographer portal,
-          where you can manage your own portfolio and profile.
-        </p>
-
-        <div style="background-color:#2a2a3e;border-left:4px solid #ffc107;
-                    border-radius:8px;padding:20px 24px;margin-bottom:20px;">
-          <table width="100%" cellpadding="0" cellspacing="0">
-            <tr>
-              <td style="padding:8px 0;color:#888888;font-size:0.9rem;width:35%;">Username:</td>
-              <td style="padding:8px 0;color:#ffffff;font-weight:bold;font-size:0.95rem;">
-                {photographer.username}</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 0;color:#888888;font-size:0.9rem;">Password:</td>
-              <td style="padding:8px 0;color:#ffffff;font-weight:bold;font-size:0.95rem;">
-                {plain_password}</td>
-            </tr>
-          </table>
-          <p style="margin:14px 0 0 0;color:#ffcc80;font-size:0.85rem;line-height:1.5;">
-            &#9888; Please log in and change this password straight away.
-            Do not share these details with anyone.
-          </p>
-        </div>
-
-        <div style="text-align:center;margin:24px 0;">
-          <a href="{login_url}"
-             style="display:inline-block;background-color:#ffc107;color:#000000;
-                    text-decoration:none;font-weight:bold;font-size:0.95rem;
-                    padding:13px 32px;border-radius:8px;">
-            Log In to Your Portal
-          </a>
-        </div>
-
-        <div style="background-color:#15263b;border-radius:8px;padding:16px 20px;">
-          <p style="margin:0 0 8px 0;font-size:0.95rem;">
-            <span>&#128204;</span>
-            <strong style="color:#8fb8e0;"> In your portal you can:</strong>
-          </p>
-          <p style="margin:0;color:#a9c7e8;font-size:0.9rem;line-height:1.8;">
-            &#10004; Upload and delete your own portfolio images<br>
-            &#10004; Update your bio, services and areas covered<br>
-            &#10004; See your bookings and customer ratings<br>
-            &#10004; Change your password
-          </p>
-        </div>
-
-      </td></tr>
-
-      <tr><td style="background-color:#c5cae9;padding:16px 30px;text-align:center;">
-        <p style="margin:0;font-size:0.82rem;color:#1a1a2e;">
-          &#169; 2026 LensCraft Studio. All rights reserved.
-        </p>
-      </td></tr>
-
-    </table></td></tr></table></body></html>"""
-
-    return _send_best_effort(msg)
-
-
-def send_photographer_welcome_email(photographer, plain_password=None):
-    """
-    NEW: Sent to a photographer when the admin creates their profile.
-
-    When an account was created, the login details are included so the
-    photographer can sign in and manage their own portfolio. The plain
-    password is passed in here only — it is never stored anywhere, since
-    the database keeps a hash.
+    Only sends when the photographer has an email address on file.
+    Best-effort — a failure never blocks the admin from adding the profile.
     """
     if not photographer.email:
         print(f"[MAIL] Photographer #{photographer.id} has no email; skipping welcome email.")
@@ -1034,50 +396,6 @@ def send_photographer_welcome_email(photographer, plain_password=None):
 
     base_url    = (app.config.get("BASE_URL") or "http://127.0.0.1:5000").rstrip("/")
     profile_url = f"{base_url}/photographer/{photographer.id}"
-    login_url   = f"{base_url}/photographer/login"
-
-    # Login block only appears when an account was actually created.
-    if photographer.username and plain_password:
-        login_block = f"""
-        <div style="background-color:#2a2a3e;border-left:4px solid #ffc107;
-                    border-radius:8px;padding:20px 24px;margin-bottom:20px;">
-          <p style="margin:0 0 12px 0;font-size:1rem;font-weight:bold;color:#ffffff;
-                     padding-bottom:10px;border-bottom:2px solid #ffc107;">
-            &#128273; Your Login Details
-          </p>
-          <table width="100%" cellpadding="0" cellspacing="0">
-            <tr>
-              <td style="padding:8px 0;color:#888888;font-size:0.9rem;width:35%;">Username:</td>
-              <td style="padding:8px 0;color:#ffffff;font-weight:bold;font-size:0.95rem;">
-                {photographer.username}</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 0;color:#888888;font-size:0.9rem;">Password:</td>
-              <td style="padding:8px 0;color:#ffffff;font-weight:bold;font-size:0.95rem;">
-                {plain_password}</td>
-            </tr>
-          </table>
-          <p style="margin:14px 0 0 0;color:#ffcc80;font-size:0.85rem;line-height:1.5;">
-            &#9888; Please log in and change this password straight away.
-            Do not share these details with anyone.
-          </p>
-          <div style="text-align:center;margin-top:16px;">
-            <a href="{login_url}"
-               style="display:inline-block;background-color:#ffc107;color:#000000;
-                      text-decoration:none;font-weight:bold;font-size:0.9rem;
-                      padding:11px 26px;border-radius:8px;">
-              Log In to Your Portal
-            </a>
-          </div>
-        </div>"""
-        login_text = (f"\nYOUR LOGIN DETAILS\n"
-                      f"Username:\t{photographer.username}\n"
-                      f"Password:\t{plain_password}\n"
-                      f"Log in here:\t{login_url}\n"
-                      f"Please change your password after your first login.\n")
-    else:
-        login_block = ""
-        login_text  = ""
 
     # Build the badge rows only for details that were actually filled in.
     def badges(items, colour="#c5cae9"):
@@ -1139,7 +457,6 @@ def send_photographer_welcome_email(photographer, plain_password=None):
         + ("Your profile is live. Customers can now find and book you.\n"
            if photographer.is_active else
            "Your profile is currently hidden while we finish setting it up.\n")
-        + login_text
         + f"\nView your profile: {profile_url}\n\n"
         "If any details are wrong, contact the studio on "
         f"{app.config.get('STUDIO_PHONE', '0540750090')} and we will update them.\n\n"
@@ -1179,8 +496,6 @@ def send_photographer_welcome_email(photographer, plain_password=None):
         </p>
 
         {status_block}
-
-        {login_block}
 
         <!-- Profile summary -->
         <div style="background-color:#2a2a3e;border-left:4px solid #c5cae9;
@@ -1968,40 +1283,12 @@ def all_reviews():
 
 @app.route("/api/booked-times")
 def booked_times():
-    """
-    Returns, as JSON, the time slots that are NOT available on a given date.
-
-    Availability now depends on two extra things:
-      - shoot_type: an indoor shoot competes for the single studio room,
-                    an outdoor shoot does not
-      - photographer: whoever is assigned cannot be double-booked
-
-    The booking page calls this whenever the date, shoot type or photographer
-    changes, and greys out the slots it returns.
-    """
     date_value = request.args.get("date", "").strip()
-    shoot_type = request.args.get("shoot_type", "studio").strip()
-    photog_raw = request.args.get("photographer_id", "").strip()
-
-    if shoot_type not in ("studio", "outdoor"):
-        shoot_type = "studio"
-
-    photographer_id = None
-    if photog_raw:
-        try:
-            photographer_id = int(photog_raw)
-        except ValueError:
-            photographer_id = None
-
     if not date_value:
         return jsonify({"date": "", "booked": []})
-
-    booked = get_unavailable_times(date_value, shoot_type, photographer_id)
-    return jsonify({
-        "date":       date_value,
-        "shoot_type": shoot_type,
-        "booked":     booked,
-    })
+    taken      = (Appointment.query.filter_by(date=date_value)
+                  .filter(Appointment.status.in_(["pending", "approved"])).all())
+    return jsonify({"date": date_value, "booked": [a.time for a in taken]})
 
 
 @app.route("/book", methods=["GET", "POST"])
@@ -2014,13 +1301,8 @@ def book():
         date_val      = request.form.get("date",          "").strip()
         time_val      = request.form.get("time",          "").strip()
         notes         = request.form.get("notes",         "").strip()
-        shoot_type    = request.form.get("shoot_type",    "studio").strip()
 
-        # Only two shoot types are valid — never trust the browser.
-        if shoot_type not in ("studio", "outdoor"):
-            shoot_type = "studio"
-
-        # ── Optional photographer selection ───────────────────────────────
+        # ── NEW: optional photographer selection ──────────────────────────
         # Never trust an ID submitted by the browser. We look it up and only
         # accept it if it matches a real, active photographer.
         photographer_id  = request.form.get("photographer_id", "").strip()
@@ -2030,35 +1312,21 @@ def book():
                 id=photographer_id, is_active=True
             ).first()
 
-            # A photographer who has marked themselves unavailable should not
-            # receive new bookings. Without this the availability badge would
-            # be decorative, and customers would book someone who cannot come.
-            if chosen_photographer and not chosen_photographer.is_available:
-                note = (f" ({chosen_photographer.availability_note})"
-                        if chosen_photographer.availability_note else "")
-                flash(f"{chosen_photographer.name} is not accepting bookings "
-                      f"at the moment{note}. Please choose another photographer "
-                      f"or book directly with the studio.", "warning")
-                return redirect(url_for("photographers"))
-
         if not all([customer_name, email, phone, service, date_val, time_val]):
             flash("Please fill in all required fields.", "danger")
             return redirect(url_for("book"))
 
-        # Resource-aware conflict check — studio room and/or photographer.
-        conflict = find_booking_conflict(
-            date_val, time_val, shoot_type,
-            chosen_photographer.id if chosen_photographer else None,
-        )
-        if conflict:
-            flash(f"Sorry! {conflict}", "danger")
+        existing = (Appointment.query.filter_by(date=date_val, time=time_val)
+                    .filter(Appointment.status.in_(["pending", "approved"])).first())
+        if existing:
+            flash(f"Sorry! The {time_val} slot on {date_val} is already booked. "
+                  "Please choose a different date or time.", "danger")
             return redirect(url_for("book"))
 
         new_appointment = Appointment(
             customer_name=customer_name, email=email, phone=phone,
             service=service, date=date_val, time=time_val,
             notes=notes, status="pending",
-            shoot_type=shoot_type,
             # Stores the photographer's ID, or None for a direct studio booking
             photographer_id=chosen_photographer.id if chosen_photographer else None,
         )
@@ -2155,31 +1423,22 @@ def review(token):
 @app.route("/photographers")
 def photographers():
     """
-    Public listing of photographers, with location handled properly.
-
-    A photographer based in Kasoa may work anywhere in Ghana, so "where are you
-    based" and "where will you travel" are two different questions. The filter
-    below reflects that:
-
-      - no region chosen  -> show everyone
-      - a region chosen   -> show anyone who COVERS that region, whether they
-                             are based there or travel there
-
-    Results are then ordered so photographers actually based in the chosen
-    region appear first, since a local photographer usually means lower travel
-    cost and better area knowledge. Those who travel in are still shown, just
-    below, and each card says which it is.
+    Public page listing all active photographers.
+    Supports optional search/filter via query parameters.
     """
     service_filter  = request.args.get("service",  "").strip()
-    region_filter   = request.args.get("region",   "").strip()
+    location_filter = request.args.get("location", "").strip()
     style_filter    = request.args.get("style",    "").strip()
     search_query    = request.args.get("q",        "").strip()
-    local_only      = request.args.get("local_only") == "on"
 
+    # Start with all active photographers
     query = Photographer.query.filter_by(is_active=True)
 
+    # Apply simple text filters using LIKE — good enough for a final year project
     if service_filter:
         query = query.filter(Photographer.services.ilike(f"%{service_filter}%"))
+    if location_filter:
+        query = query.filter(Photographer.locations.ilike(f"%{location_filter}%"))
     if style_filter:
         query = query.filter(Photographer.styles.ilike(f"%{style_filter}%"))
     if search_query:
@@ -2189,40 +1448,19 @@ def photographers():
                 Photographer.business_name.ilike(f"%{search_query}%"),
                 Photographer.bio.ilike(f"%{search_query}%"),
                 Photographer.services.ilike(f"%{search_query}%"),
-                Photographer.base_town.ilike(f"%{search_query}%"),
-                Photographer.base_region.ilike(f"%{search_query}%"),
+                Photographer.locations.ilike(f"%{search_query}%"),
             )
         )
 
-    results = query.order_by(Photographer.created_at.desc()).all()
-
-    # Region filtering happens in Python because "covers this region" combines
-    # three things: nationwide coverage, the base region, and the travel list.
-    if region_filter:
-        if local_only:
-            # Customer specifically wants someone based in their region.
-            results = [p for p in results if p.is_based_in(region_filter)]
-        else:
-            results = [p for p in results if p.covers_region(region_filter)]
-
-        # Locally based first, then those who travel in.
-        results.sort(key=lambda p: (not p.is_based_in(region_filter),
-                                    not p.is_available))
-    else:
-        # With no region chosen, at least put available photographers first.
-        results.sort(key=lambda p: not p.is_available)
+    all_photographers = query.order_by(Photographer.created_at.desc()).all()
 
     return render_template(
         "photographers.html",
-        photographers=results,
-        all_services=PHOTOGRAPHY_SERVICES,
-        all_styles=PHOTOGRAPHY_STYLES,
-        all_regions=GHANA_REGIONS,
+        photographers=all_photographers,
         service_filter=service_filter,
-        region_filter=region_filter,
+        location_filter=location_filter,
         style_filter=style_filter,
         search_query=search_query,
-        local_only=local_only,
     )
 
 
@@ -2232,9 +1470,8 @@ def photographer_profile(photographer_id):
     photographer = Photographer.query.filter_by(
         id=photographer_id, is_active=True
     ).first_or_404()
-    # Removed images are hidden from the public profile.
     portfolio = (PhotographerPortfolio.query
-                 .filter_by(photographer_id=photographer_id, is_removed=False)
+                 .filter_by(photographer_id=photographer_id)
                  .order_by(PhotographerPortfolio.created_at.desc())
                  .all())
     return render_template("photographer_profile.html",
@@ -2255,58 +1492,18 @@ def join_network():
         phone    = request.form.get("phone",    "").strip()
         email    = request.form.get("email",    "").strip()
         location = request.form.get("location", "").strip()
-        base_region = request.form.get("base_region", "").strip()
-        if base_region in GHANA_REGIONS:
-            location = f"{location} ({base_region})" if location else base_region
+        services = request.form.get("services", "").strip()
+        style    = request.form.get("style",    "").strip()
         message  = request.form.get("message",  "").strip()
 
-        # Services and styles now come from fixed checkbox lists rather than
-        # free text, so the values are consistent and searchable.
-        services = _collect_checkboxes("services", PHOTOGRAPHY_SERVICES)
-        style    = _collect_checkboxes("style",    PHOTOGRAPHY_STYLES)
-
-        # ── Ghana Card (identity verification) ────────────────────────────
-        ghana_card_number = request.form.get("ghana_card_number", "").strip().upper()
-        consent_given     = request.form.get("consent") == "on"
-
-        # Every one of these is needed to build a usable profile, so the
-        # server checks them rather than trusting the browser's required attr.
-        required = [
-            (name,     "your full name"),
-            (phone,    "your phone number"),
-            (email,    "your email address"),
-            (location, "the area you cover"),
-            (services, "at least one service you offer"),
-            (style,    "at least one photography style"),
-        ]
-        for value, label in required:
-            if not value:
-                flash(f"Please provide {label}.", "danger")
-                return redirect(url_for("join_network"))
-
-        if not ghana_card_number:
-            flash("Please provide your Ghana Card number. This is required so "
-                  "photographers on the network can be verified.", "danger")
+        if not name:
+            flash("Please enter your name.", "danger")
             return redirect(url_for("join_network"))
-
-        if not consent_given:
-            flash("Please tick the consent box to confirm you agree to us "
-                  "storing your identity details.", "danger")
-            return redirect(url_for("join_network"))
-
-        # Saved OUTSIDE static/ so the card image is never publicly reachable.
-        ghana_card_image = None
-        if "ghana_card_image" in request.files:
-            ghana_card_image = _save_private_file(
-                request.files["ghana_card_image"], "ghana_cards")
 
         new_enquiry = PhotographerEnquiry(
             name=name, phone=phone, email=email,
             location=location, services=services,
             style=style, message=message,
-            ghana_card_number=ghana_card_number,
-            ghana_card_image=ghana_card_image,
-            consent_given=consent_given,
         )
         db.session.add(new_enquiry)
         db.session.commit()
@@ -2332,475 +1529,12 @@ def join_network():
         return redirect(url_for("join_network"))
 
     return render_template("join_network.html",
-                           all_services=PHOTOGRAPHY_SERVICES,
-                           all_styles=PHOTOGRAPHY_STYLES,
-                           all_regions=GHANA_REGIONS,
                            studio_name    =app.config.get("STUDIO_NAME"),
                            studio_phone   =app.config.get("STUDIO_PHONE"),
                            studio_whatsapp=app.config.get("STUDIO_WHATSAPP"),
                            studio_email   =app.config.get("STUDIO_EMAIL"),
                            studio_address =app.config.get("STUDIO_ADDRESS"),
                            studio_hours   =app.config.get("STUDIO_HOURS"))
-
-
-# ============================================================
-# NEW — PHOTOGRAPHER PORTAL (photographers manage their own portfolio)
-# ============================================================
-
-@app.route("/photographer/login", methods=["GET", "POST"])
-def photographer_login():
-    """Login page for photographers — separate from the admin login."""
-    if "photographer_logged_in" in session:
-        return redirect(url_for("photographer_dashboard"))
-
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "").strip()
-
-        photographer = Photographer.query.filter_by(username=username).first()
-
-        if (photographer and photographer.password
-                and check_password_hash(photographer.password, password)):
-            session["photographer_logged_in"] = True
-            session["photographer_id"]        = photographer.id
-            session["photographer_name"]      = photographer.name
-
-            # Still on the temporary password the admin issued — they must
-            # choose their own before doing anything else.
-            if photographer.must_change_password:
-                flash("Welcome! Please choose your own password to continue.",
-                      "info")
-                return redirect(url_for("photographer_force_password"))
-
-            flash(f"Welcome back, {photographer.name}!", "success")
-            return redirect(url_for("photographer_dashboard"))
-
-        flash("Incorrect username or password. Please try again.", "danger")
-
-    return render_template("photographer_login.html")
-
-
-@app.route("/photographer/set-password", methods=["GET", "POST"])
-@photographer_login_required
-def photographer_force_password():
-    """
-    Shown when the photographer is still on the temporary password the admin
-    issued. They cannot reach any other portal page until they set their own.
-
-    The old password is still required here, so someone who walks up to an
-    unattended logged-in browser cannot simply take over the account.
-    """
-    photographer = current_photographer()
-    if not photographer:
-        session.clear()
-        return redirect(url_for("photographer_login"))
-
-    # Already chosen their own password — nothing to do here.
-    if not photographer.must_change_password:
-        return redirect(url_for("photographer_dashboard"))
-
-    if request.method == "POST":
-        current = request.form.get("current_password", "").strip()
-        new     = request.form.get("new_password", "").strip()
-        confirm = request.form.get("confirm_password", "").strip()
-
-        if not check_password_hash(photographer.password or "", current):
-            flash("Your temporary password is incorrect.", "danger")
-        elif len(new) < 6:
-            flash("Your new password must be at least 6 characters.", "danger")
-        elif new == current:
-            flash("Please choose a password different from the temporary one.",
-                  "danger")
-        elif new != confirm:
-            flash("The new passwords do not match.", "danger")
-        else:
-            photographer.password = generate_password_hash(new)
-            photographer.must_change_password = False   # unlocks the portal
-            db.session.commit()
-            flash("Password set. Welcome to your portal!", "success")
-            return redirect(url_for("photographer_dashboard"))
-
-    return render_template("photographer_force_password.html",
-                           photographer=photographer)
-
-
-@app.route("/photographer/availability", methods=["POST"])
-@photographer_login_required
-def photographer_toggle_availability():
-    """
-    Lets a photographer say whether they are currently taking bookings.
-
-    This is theirs to control, not the admin's. When switched off they stay
-    visible in the listing -- marked Unavailable -- so customers can see who
-    exists, but they cannot be booked and are excluded from AI matching.
-    """
-    photographer = current_photographer()
-    if not photographer:
-        return redirect(url_for("photographer_login"))
-
-    photographer.is_available = request.form.get("is_available") == "on"
-    photographer.availability_note = request.form.get("availability_note", "").strip()[:200] or None
-    db.session.commit()
-
-    if photographer.is_available:
-        flash("You are now shown as AVAILABLE and can receive bookings.", "success")
-    else:
-        note = f" Note shown to customers: {photographer.availability_note}" \
-               if photographer.availability_note else ""
-        flash(f"You are now shown as UNAVAILABLE and will not receive new "
-              f"bookings.{note}", "info")
-
-    return redirect(url_for("photographer_dashboard"))
-
-
-@app.route("/photographer/booking/<int:appointment_id>/<status>", methods=["POST"])
-@photographer_login_required
-def photographer_update_booking(appointment_id, status):
-    """
-    Lets a photographer approve, reject or complete a booking made with THEM.
-
-    The ownership check is the critical part: without it, any logged-in
-    photographer could change the status of another photographer's bookings
-    just by editing the ID in the URL.
-
-    The studio admin keeps full override on every booking -- this only adds
-    the photographer's own control over their own work.
-    """
-    allowed = ["approved", "rejected", "completed"]
-    if status not in allowed:
-        flash("Invalid booking status.", "danger")
-        return redirect(url_for("photographer_dashboard"))
-
-    photographer = current_photographer()
-    appointment  = db.session.get(Appointment, appointment_id)
-
-    # Must exist, and must belong to THIS photographer.
-    if (not appointment or not photographer
-            or appointment.photographer_id != photographer.id):
-        flash("That booking was not found in your list.", "danger")
-        return redirect(url_for("photographer_dashboard"))
-
-    old_status         = appointment.status
-    appointment.status = status
-
-    # Completing a booking issues the review token, exactly as the admin
-    # route does, so the customer can be asked for feedback.
-    if status == "completed" and not appointment.review_token:
-        appointment.review_token = secrets.token_urlsafe(24)
-
-    db.session.commit()
-
-    appt_id = appointment.id
-
-    def _notify(aid, new_status):
-        with app.app_context():
-            try:
-                appt = db.session.get(Appointment, aid)
-                if not appt:
-                    return
-                if new_status == "approved":
-                    send_approval_email(appt)
-                    send_whatsapp(appt.phone,
-                        f"Good news {appt.customer_name}! Your LensCraft Studio booking "
-                        f"for {appt.service} on {appt.date} at {appt.time} has been "
-                        f"APPROVED. Please arrive 10 minutes early. See you soon!")
-                elif new_status == "rejected":
-                    send_rejection_email(appt)
-                    send_whatsapp(appt.phone,
-                        f"Hello {appt.customer_name}, your LensCraft Studio booking for "
-                        f"{appt.service} on {appt.date} at {appt.time} could not be "
-                        f"confirmed. Please contact us on "
-                        f"{app.config.get('STUDIO_PHONE', '0540750090')} for options.")
-                elif new_status == "completed":
-                    send_review_request_email(appt)
-            except Exception as e:
-                print(f"[MAIL] photographer booking notify failed: {type(e).__name__}: {e}")
-
-    threading.Thread(target=_notify, args=(appt_id, status), daemon=True).start()
-
-    messages = {
-        "approved":  f"Booking approved. {appointment.customer_name} has been notified.",
-        "rejected":  f"Booking declined. {appointment.customer_name} has been notified.",
-        "completed": f"Booking marked complete. {appointment.customer_name} has been "
-                     f"emailed a link to leave a review.",
-    }
-    flash(messages.get(status, f"Booking updated from {old_status} to {status}."),
-          "success")
-
-    return redirect(url_for("photographer_dashboard"))
-
-
-@app.route("/photographer/logout")
-@photographer_login_required
-def photographer_logout():
-    """Clears only the photographer keys, leaving any admin session alone."""
-    session.pop("photographer_logged_in", None)
-    session.pop("photographer_id", None)
-    session.pop("photographer_name", None)
-    flash("You have been logged out successfully.", "info")
-    return redirect(url_for("photographer_login"))
-
-
-@app.route("/photographer/dashboard")
-@photographer_login_required
-def photographer_dashboard():
-    """Where a photographer manages their own portfolio and sees their rating."""
-    photographer = current_photographer()
-    if not photographer:
-        session.clear()
-        return redirect(url_for("photographer_login"))
-
-    # Active images the photographer manages themselves.
-    portfolio = (PhotographerPortfolio.query
-                 .filter_by(photographer_id=photographer.id, is_removed=False)
-                 .order_by(PhotographerPortfolio.created_at.desc()).all())
-
-    # Images the studio removed, shown separately with the reason so the
-    # photographer understands what happened rather than images silently
-    # vanishing.
-    removed_images = (PhotographerPortfolio.query
-                      .filter_by(photographer_id=photographer.id, is_removed=True)
-                      .order_by(PhotographerPortfolio.removed_at.desc()).all())
-
-    ratings = (PhotographerRating.query
-               .filter_by(photographer_id=photographer.id)
-               .order_by(PhotographerRating.created_at.desc()).all())
-
-    bookings = (Appointment.query
-                .filter_by(photographer_id=photographer.id)
-                .order_by(Appointment.created_at.desc()).all())
-
-    return render_template("photographer_dashboard.html",
-                           all_services=PHOTOGRAPHY_SERVICES,
-                           all_styles=PHOTOGRAPHY_STYLES,
-                           all_regions=GHANA_REGIONS,
-                           photographer=photographer,
-                           portfolio=portfolio,
-                           removed_images=removed_images,
-                           ratings=ratings,
-                           bookings=bookings)
-
-
-@app.route("/photographer/portfolio/upload", methods=["POST"])
-@photographer_login_required
-def photographer_portfolio_upload():
-    """A photographer uploading their own portfolio images."""
-    photographer = current_photographer()
-    if not photographer:
-        return redirect(url_for("photographer_login"))
-
-    files    = request.files.getlist("portfolio_images")
-    title    = request.form.get("title", "").strip()
-    category = request.form.get("category", "").strip()
-    uploaded = 0
-
-    for f in files:
-        filename = _save_uploaded_image(f, "portfolio")
-        if filename:
-            db.session.add(PhotographerPortfolio(
-                photographer_id=photographer.id,
-                image=filename,
-                title=title or None,
-                category=category or None,
-            ))
-            uploaded += 1
-
-    if uploaded:
-        db.session.commit()
-        flash(f"{uploaded} image(s) uploaded to your portfolio.", "success")
-    else:
-        flash("No valid images uploaded. Please use JPG, PNG, or WEBP.", "warning")
-
-    return redirect(url_for("photographer_dashboard"))
-
-
-@app.route("/photographer/portfolio/delete/<int:portfolio_id>", methods=["POST"])
-@photographer_login_required
-def photographer_portfolio_delete(portfolio_id):
-    """
-    A photographer deleting one of their own portfolio images.
-
-    The ownership check is essential — without it, photographer A could delete
-    photographer B's images just by changing the ID in the URL.
-    """
-    photographer = current_photographer()
-    item = db.session.get(PhotographerPortfolio, portfolio_id)
-
-    # Ownership check, plus: a photographer cannot delete an image the studio
-    # has removed -- that would destroy the moderation record.
-    if (not item or not photographer
-            or item.photographer_id != photographer.id
-            or item.is_removed):
-        flash("That image was not found in your portfolio.", "danger")
-        return redirect(url_for("photographer_dashboard"))
-
-    _delete_image_file(item.image, "portfolio")
-    db.session.delete(item)
-    db.session.commit()
-    flash("Portfolio image deleted.", "success")
-    return redirect(url_for("photographer_dashboard"))
-
-
-@app.route("/photographer/profile/update", methods=["POST"])
-@photographer_login_required
-def photographer_profile_update():
-    """
-    Lets a photographer edit their own bio, services, locations and styles.
-
-    Deliberately NOT editable here: is_active (studio controls visibility),
-    username, and Ghana Card details (identity data stays with the admin).
-    """
-    photographer = current_photographer()
-    if not photographer:
-        return redirect(url_for("photographer_login"))
-
-    photographer.bio       = request.form.get("bio", "").strip()
-    photographer.locations = _collect_checkboxes("locations", GHANA_REGIONS)
-    photographer.base_town = request.form.get("base_town", "").strip() or None
-    _br = request.form.get("base_region", "").strip()
-    photographer.base_region = _br if _br in GHANA_REGIONS else None
-    photographer.covers_nationwide = request.form.get("covers_nationwide") == "on"
-    photographer.services  = _collect_checkboxes("services", PHOTOGRAPHY_SERVICES)
-    photographer.styles    = _collect_checkboxes("styles",   PHOTOGRAPHY_STYLES)
-    photographer.phone     = request.form.get("phone", "").strip()
-
-    try:
-        photographer.experience = int(request.form.get("experience", "0"))
-    except ValueError:
-        photographer.experience = photographer.experience or 0
-
-    if "profile_image" in request.files and request.files["profile_image"].filename:
-        new_img = _save_uploaded_image(request.files["profile_image"], "photographers")
-        if new_img:
-            _delete_image_file(photographer.profile_image, "photographers")
-            photographer.profile_image = new_img
-
-    db.session.commit()
-    flash("Your profile has been updated.", "success")
-    return redirect(url_for("photographer_dashboard"))
-
-
-@app.route("/photographer/change-password", methods=["POST"])
-@photographer_login_required
-def photographer_change_password():
-    """Lets a photographer change the password the admin issued them."""
-    photographer = current_photographer()
-    if not photographer:
-        return redirect(url_for("photographer_login"))
-
-    current  = request.form.get("current_password", "").strip()
-    new      = request.form.get("new_password", "").strip()
-    confirm  = request.form.get("confirm_password", "").strip()
-
-    if not check_password_hash(photographer.password or "", current):
-        flash("Your current password is incorrect.", "danger")
-    elif len(new) < 6:
-        flash("Your new password must be at least 6 characters.", "danger")
-    elif new != confirm:
-        flash("The new passwords do not match.", "danger")
-    else:
-        photographer.password = generate_password_hash(new)
-        db.session.commit()
-        flash("Your password has been changed.", "success")
-
-    return redirect(url_for("photographer_dashboard"))
-
-
-# ============================================================
-# NEW — CUSTOMER STAR RATINGS ON PHOTOGRAPHER PROFILES
-# ============================================================
-
-@app.route("/photographer/<int:photographer_id>/rate", methods=["POST"])
-def rate_photographer(photographer_id):
-    """
-    Accepts a star rating left by a customer on a photographer's profile.
-
-    Anti-abuse measures applied here:
-      1. the photographer must exist and be active
-      2. rating must be a whole number from 1 to 5
-      3. one rating per IP address per photographer
-      4. comment is truncated to 500 characters
-
-    Honest limitation: this is an OPEN rating system, so it cannot prove the
-    reviewer was a real customer. Measure 3 blocks casual repeat spam from the
-    same device but not someone using a different network. A production system
-    would only accept ratings from customers with a completed booking.
-    """
-    photographer = Photographer.query.filter_by(
-        id=photographer_id, is_active=True
-    ).first()
-    if not photographer:
-        flash("Photographer not found.", "danger")
-        return redirect(url_for("photographers"))
-
-    customer_name = request.form.get("customer_name", "").strip()
-    rating_raw    = request.form.get("rating", "").strip()
-    comment       = request.form.get("comment", "").strip()[:500]
-
-    if not customer_name:
-        flash("Please enter your name.", "danger")
-        return redirect(url_for("photographer_profile", photographer_id=photographer_id))
-
-    if rating_raw not in ["1", "2", "3", "4", "5"]:
-        flash("Please select a star rating from 1 to 5.", "danger")
-        return redirect(url_for("photographer_profile", photographer_id=photographer_id))
-
-    # One rating per IP per photographer.
-    ip = request.remote_addr or "unknown"
-    already = PhotographerRating.query.filter_by(
-        photographer_id=photographer_id, ip_address=ip
-    ).first()
-    if already:
-        flash("You have already rated this photographer. Thank you!", "info")
-        return redirect(url_for("photographer_profile", photographer_id=photographer_id))
-
-    db.session.add(PhotographerRating(
-        photographer_id=photographer_id,
-        customer_name=customer_name,
-        rating=int(rating_raw),
-        comment=comment or None,
-        ip_address=ip,
-    ))
-    db.session.commit()
-
-    flash("Thank you for rating this photographer!", "success")
-    return redirect(url_for("photographer_profile", photographer_id=photographer_id))
-
-
-# ============================================================
-# NEW — GHANA CARD (admin-only, never served publicly)
-# ============================================================
-
-@app.route("/admin/ghana-card/<int:enquiry_id>")
-@login_required
-def admin_view_enquiry_card(enquiry_id):
-    """
-    Serves a Ghana Card image from the PRIVATE uploads folder.
-
-    Because the file lives outside static/, Flask will not serve it directly.
-    This route is the only way to reach it, and @login_required means an
-    anonymous visitor gets redirected to the admin login instead.
-    """
-    enquiry = db.session.get(PhotographerEnquiry, enquiry_id)
-    if not enquiry or not enquiry.ghana_card_image:
-        flash("No Ghana Card image on file for that enquiry.", "warning")
-        return redirect(url_for("admin_photographers"))
-
-    folder = os.path.join(app.root_path, "private_uploads", "ghana_cards")
-    return send_from_directory(folder, enquiry.ghana_card_image)
-
-
-@app.route("/admin/ghana-card/photographer/<int:photographer_id>")
-@login_required
-def admin_view_photographer_card(photographer_id):
-    """Same as above, for a Ghana Card attached to a photographer profile."""
-    photographer = db.session.get(Photographer, photographer_id)
-    if not photographer or not photographer.ghana_card_image:
-        flash("No Ghana Card image on file for that photographer.", "warning")
-        return redirect(url_for("admin_photographers"))
-
-    folder = os.path.join(app.root_path, "private_uploads", "ghana_cards")
-    return send_from_directory(folder, photographer.ghana_card_image)
 
 
 # ============================================================
@@ -2826,25 +1560,18 @@ def ai_photographer_finder():
         return jsonify({"success": False,
                         "error": "AI finder is currently unavailable."}), 503
 
-    data            = request.get_json(silent=True) or {}
-    description     = (data.get("description") or "").strip()
-    customer_region = (data.get("region") or "").strip()
-    if customer_region not in GHANA_REGIONS:
-        customer_region = ""
+    data        = request.get_json(silent=True) or {}
+    description = (data.get("description") or "").strip()
 
     if not description:
         return jsonify({"success": False, "error": "Please describe what you are looking for."}), 400
 
     # ── Step 1: Get all active photographers from database ────────────────
-    # Only photographers who are actually taking bookings are matched --
-    # recommending someone unavailable wastes the customer's time.
-    all_photographers = Photographer.query.filter_by(
-        is_active=True, is_available=True).all()
+    all_photographers = Photographer.query.filter_by(is_active=True).all()
 
     if not all_photographers:
         return jsonify({"success": False,
-                        "error": "No photographers are available right now. "
-                                 "Please try again later or book with the studio."}), 404
+                        "error": "No photographers are currently registered on the platform."}), 404
 
     # ── Step 2: Build a concise candidate list for the AI ─────────────────
     # We send only the information the AI needs — keeping cost low.
@@ -2854,98 +1581,22 @@ def ai_photographer_finder():
     import json
     candidates_json = json.dumps(candidates, indent=2)
 
-    # If the customer told us their region, state it explicitly rather than
-    # leaving the model to infer it from free text.
-    region_line = (f"The customer is located in the {customer_region} region of Ghana.\n"
-                   if customer_region else "")
-
     prompt = (
         f"You are a photography platform assistant for LensCraft Studio in Ghana.\n"
         f"A customer is looking for a photographer and has described their needs as follows:\n\n"
         f'"{description}"\n\n'
-        f"{region_line}"
         f"Below is the list of registered photographers on the platform. "
         f"You must ONLY recommend photographers from this list. "
         f"Do NOT invent or suggest photographers that are not in this list.\n\n"
         f"PHOTOGRAPHERS:\n{candidates_json}\n\n"
-
-        f"UNDERSTANDING THE LOCATION FIELDS:\n"
-        f'  - "base_town" is the town or city the photographer lives in.\n'
-        f'  - "base_region" is which of Ghana\'s 16 regions that town sits in.\n'
-        f'  - "covers" is where they will travel to work. "Nationwide" means '
-        f"anywhere in Ghana.\n\n"
-
-        f"GHANA GEOGRAPHY -- USE YOUR KNOWLEDGE OF IT:\n"
-        f"  Customers write naturally. They say \"Accra\", \"Kumasi\" or "
-        f"\"around Tema\" rather than naming a region. You must map what they "
-        f"say onto the town and region fields yourself. For example:\n"
-        f"    Accra, Tema, Madina, Adenta, Kasoa (partly) -> Greater Accra\n"
-        f"    Kumasi, Obuasi, Ejisu                       -> Ashanti\n"
-        f"    Koforidua, Nsawam, Nkawkaw                  -> Eastern\n"
-        f"    Cape Coast, Winneba, Kasoa                  -> Central\n"
-        f"    Takoradi, Sekondi                           -> Western\n"
-        f"    Tamale, Yendi                               -> Northern\n"
-        f"    Ho, Hohoe -> Volta   Sunyani -> Bono   Wa -> Upper West\n"
-        f"    Bolgatanga -> Upper East\n"
-        f"  Use your wider knowledge too -- this list is not exhaustive.\n\n"
-
-        f"FIRST, DECIDE WHETHER LOCATION IS PART OF THIS REQUEST:\n"
-        f"  Read the customer's words carefully. Did they name a town, city or "
-        f"region, or otherwise ask for someone nearby?\n"
-        f'  - If they did, put that place in "location_requested" exactly as they '
-        f'said it -- for example "Accra" or "Koforidua".\n'
-        f'  - If they did NOT mention any place, set "location_requested" to an '
-        f"empty string. A request like \"I need a photographer with the best "
-        f"experience and work rate\" mentions no place, so it must be empty. "
-        f"Do not invent a location the customer never asked for.\n\n"
-
-        f"IF NO LOCATION WAS REQUESTED:\n"
-        f'  Put ALL your recommendations in "local_matches" and leave '
-        f'"travel_matches" empty. Rank purely on how well they fit what the '
-        f"customer asked for -- experience, rating, service and style.\n\n"
-
-        f"IF A LOCATION WAS REQUESTED, SPLIT YOUR ANSWER INTO TWO GROUPS:\n\n"
-
-        f"GROUP 1 - LOCAL MATCHES (photographers already in that area):\n"
-        f"  Include a photographer here if ANY of these is true:\n"
-        f'    a) their "base_town" is the town the customer named;\n'
-        f'    b) their "base_region" is the region that town belongs to. So for '
-        f'a customer asking about "Accra", ANY photographer whose base_region is '
-        f'"Greater Accra" is LOCAL, wherever in the region they live;\n'
-        f"    c) their base town is a near neighbour of the customer's town, "
-        f"close enough that a local would consider them nearby.\n"
-        f"  Be sensible rather than literal. Someone in Tema is local to Accra. "
-        f"Someone in Tamale is not.\n"
-        f"  Only return an empty local list when genuinely nobody is in or near "
-        f"that area -- then the travel group below answers the customer instead.\n\n"
-
-        f"GROUP 2 - TRAVEL MATCHES (based elsewhere, but will come):\n"
-        f"  Photographers who are NOT in or near that area, but can still reach "
-        f'it -- "covers" is "Nationwide", or their covers list includes the '
-        f"customer's region.\n"
-        f"  Never place the same photographer in both groups.\n\n"
-
-        f"HANDLING ANY OTHER WORDING:\n"
-        f"  Customers may write vaguely, in slang, with typos, or ask about "
-        f"budget, dates, group size or anything else. Interpret it as helpfully "
-        f"as you can and still return the JSON. If a request is too vague to "
-        f"narrow down, simply rank the strongest all-round photographers and say "
-        f"why in the reason.\n\n"
-
-        f"Rank up to 3 in each group by how well they fit the customer's "
-        f"described needs -- service, style, experience and rating.\n\n"
-
+        f"Based on the customer's description, identify and rank the top 1 to 3 most suitable "
+        f"photographers from the list above.\n\n"
         f"Return ONLY a valid JSON object in this exact format:\n"
-        f'{{"location_requested": "<place the customer named, or empty string>", '
-        f'"local_matches": ['
-        f'{{"photographer_id": <id>, "match_score": <0-100>, "reason": "<one sentence>"}}'
-        f'], "travel_matches": ['
-        f'{{"photographer_id": <id>, "match_score": <0-100>, "reason": "<one sentence>"}}'
+        f'{{"matches": ['
+        f'{{"photographer_id": <id>, "match_score": <0-100>, "reason": "<one sentence why this photographer suits the customer>"}},'
+        f'...'
         f']}}\n\n'
-        f"Mention location in your reason ONLY when the customer asked about it. "
-        f"If they did not, talk about what they DID ask for -- their experience, "
-        f"rating, or the style of their work.\n"
-        f"If nobody is suitable, return empty lists.\n"
+        f"If no photographer is a reasonable match, return: {{\"matches\": []}}\n"
         f"Return ONLY the JSON. No other text."
     )
 
@@ -2978,117 +1629,46 @@ def ai_photographer_finder():
         cleaned = cleaned.strip()
 
         ai_result = json.loads(cleaned)
+        matches   = ai_result.get("matches", [])
 
-        # The AI now returns two groups. Older single-list responses are still
-        # handled, so a malformed reply degrades rather than breaking.
-        # Whether location was part of the request at all. The dropdown counts
-        # as an explicit request; otherwise we trust what the AI read from the
-        # customer's own words.
-        location_requested = (customer_region
-                              or (ai_result.get("location_requested") or "").strip())
-
-        local_raw  = ai_result.get("local_matches",  [])
-        travel_raw = ai_result.get("travel_matches", [])
-        if not local_raw and not travel_raw and "matches" in ai_result:
-            local_raw = ai_result.get("matches", [])
-
+        # ── Step 6: Enrich with real database data ────────────────────────
+        # Replace AI-returned IDs with actual photographer objects so the
+        # frontend can display real names, images, etc.
         photographer_map = {p.id: p for p in all_photographers}
-        seen_ids = set()
+        enriched_matches = []
 
-        def enrich(raw_list):
-            """
-            Turns the AI's id list into real photographer data.
+        for match in matches:
+            pid   = match.get("photographer_id")
+            photo = photographer_map.get(pid)
+            if not photo:
+                continue   # AI hallucinated an ID — skip it safely
 
-            Two safeguards here: an id the AI invented is skipped, and a
-            photographer already placed in the local group cannot appear again
-            in the travel group.
-            """
-            out = []
-            for match in raw_list:
-                pid_m = match.get("photographer_id")
-                photo = photographer_map.get(pid_m)
-                if not photo or photo.id in seen_ids:
-                    continue
-                seen_ids.add(photo.id)
+            profile_img_url = None
+            if photo.profile_image:
+                profile_img_url = url_for("static",
+                                          filename=f"img/photographers/{photo.profile_image}")
 
-                profile_img_url = None
-                if photo.profile_image:
-                    profile_img_url = url_for(
-                        "static", filename=f"img/photographers/{photo.profile_image}")
+            enriched_matches.append({
+                "id":            photo.id,
+                "name":          photo.name,
+                "business_name": photo.business_name or photo.name,
+                "profile_image": profile_img_url,
+                "bio":           (photo.bio or "")[:150],
+                "services":      photo.services_list(),
+                "locations":     photo.locations_list(),
+                "styles":        photo.styles_list(),
+                "experience":    photo.experience or 0,
+                "match_score":   match.get("match_score", 0),
+                "reason":        match.get("reason", ""),
+                "profile_url":   url_for("photographer_profile", photographer_id=photo.id),
+            })
 
-                out.append({
-                    "id":            photo.id,
-                    "name":          photo.name,
-                    "business_name": photo.business_name or photo.name,
-                    "profile_image": profile_img_url,
-                    "bio":           (photo.bio or "")[:150],
-                    "services":      photo.services_list(),
-                    "locations":     photo.locations_list(),
-                    "styles":        photo.styles_list(),
-                    "experience":    photo.experience or 0,
-                    "rating":        photo.average_rating(),
-                    "based_in":      photo.base_label(),
-                    "nationwide":    photo.covers_nationwide,
-                    "match_score":   match.get("match_score", 0),
-                    "reason":        match.get("reason", ""),
-                    "profile_url":   url_for("photographer_profile",
-                                             photographer_id=photo.id),
-                })
-            return out
-
-        # Local first, so those ids are claimed before the travel group runs.
-        local_matches  = enrich(local_raw)
-        travel_matches = enrich(travel_raw)
-
-        # Safety net. The model occasionally treats a city name too literally --
-        # putting an Accra-based photographer in "travel" because the customer
-        # typed "Accra" and their base_town says "Tema". Both are in Greater
-        # Accra, so that is wrong. Here we move anyone whose base region matches
-        # the requested place back into the local group.
-        if location_requested and travel_matches:
-            requested = location_requested.strip().lower()
-
-            # Which region does the requested place sit in?
-            target_region = None
-            for region in GHANA_REGIONS:
-                if region.lower() in requested or requested in region.lower():
-                    target_region = region
-                    break
-            if not target_region:
-                # Try matching the place against photographers' own base towns.
-                for photo in all_photographers:
-                    if photo.base_town and photo.base_town.lower() == requested:
-                        target_region = photo.base_region
-                        break
-
-            if target_region:
-                still_travelling = []
-                for match in travel_matches:
-                    photo = photographer_map.get(match["id"])
-                    same_town   = (photo and photo.base_town
-                                   and photo.base_town.strip().lower() == requested)
-                    same_region = (photo and photo.base_region == target_region)
-                    if same_town or same_region:
-                        print(f"[AI-FINDER] moved {match['name']} to local "
-                              f"({photo.base_label()} is in {target_region})")
-                        local_matches.append(match)
-                    else:
-                        still_travelling.append(match)
-                travel_matches = still_travelling
-
-                # Keep the strongest matches at the top after any moves.
-                local_matches.sort(key=lambda m: m.get("match_score", 0), reverse=True)
-
-        print(f"[AI-FINDER] {len(local_matches)} local, "
-              f"{len(travel_matches)} travel match(es)")
+        print(f"[AI-FINDER] returning {len(enriched_matches)} match(es)")
 
         return jsonify({
-            "success":            True,
-            "description":        description,
-            "region":             customer_region,
-            "location_requested": location_requested,
-            "local_matches":      local_matches,
-            "travel_matches":     travel_matches,
+            "success":     True,
+            "description": description,
+            "matches":     enriched_matches,
         })
 
     except json.JSONDecodeError as e:
@@ -3383,51 +1963,20 @@ def admin_photographer_add():
         email         = request.form.get("email",         "").strip()
         phone         = request.form.get("phone",         "").strip()
         bio           = request.form.get("bio",           "").strip()
+        services      = request.form.get("services",      "").strip()
+        locations     = request.form.get("locations",     "").strip()
+        styles        = request.form.get("styles",        "").strip()
         experience    = request.form.get("experience",    "0").strip()
-        base_town     = request.form.get("base_town",     "").strip()
-        base_region   = request.form.get("base_region",   "").strip()
-        covers_nationwide = request.form.get("covers_nationwide") == "on"
-        if base_region not in GHANA_REGIONS:
-            base_region = None
-        # Regions they will travel to, from the fixed Ghana region list.
-        locations     = _collect_checkboxes("locations", GHANA_REGIONS)
-        # Same fixed lists as the public enquiry form, so search and AI
-        # matching read consistent values.
-        services      = _collect_checkboxes("services", PHOTOGRAPHY_SERVICES)
-        styles        = _collect_checkboxes("styles",   PHOTOGRAPHY_STYLES)
         is_active     = request.form.get("is_active") == "on"
-
-        # ── Login credentials the photographer will use ───────────────────
-        username      = request.form.get("username", "").strip()
-        raw_password  = request.form.get("password", "").strip()
-
-        # ── Ghana Card details ────────────────────────────────────────────
-        ghana_card_number = request.form.get("ghana_card_number", "").strip().upper()
 
         if not name:
             flash("Photographer name is required.", "danger")
-            return redirect(url_for("admin_photographer_add"))
-
-        # Usernames must be unique, otherwise logins become ambiguous.
-        if username and Photographer.query.filter_by(username=username).first():
-            flash(f"The username '{username}' is already taken. Choose another.", "danger")
-            return redirect(url_for("admin_photographer_add"))
-
-        if username and len(raw_password) < 6:
-            flash("Please set a password of at least 6 characters for the photographer.",
-                  "danger")
             return redirect(url_for("admin_photographer_add"))
 
         # Handle profile image upload
         profile_image = None
         if "profile_image" in request.files:
             profile_image = _save_uploaded_image(request.files["profile_image"], "photographers")
-
-        # Ghana Card image goes to the PRIVATE folder, never static/
-        ghana_card_image = None
-        if "ghana_card_image" in request.files:
-            ghana_card_image = _save_private_file(
-                request.files["ghana_card_image"], "ghana_cards")
 
         try:
             exp_val = int(experience)
@@ -3441,37 +1990,27 @@ def admin_photographer_add():
             bio=bio, services=services,
             locations=locations, styles=styles,
             experience=exp_val, is_active=is_active,
-            base_town=base_town or None,
-            base_region=base_region,
-            covers_nationwide=covers_nationwide,
-            username=username or None,
-            password=generate_password_hash(raw_password) if username else None,
-            # Admin-issued passwords are always temporary — the photographer
-            # must choose their own before they can use the portal.
-            must_change_password=bool(username),
-            ghana_card_number=ghana_card_number or None,
-            ghana_card_image=ghana_card_image,
         )
         db.session.add(new_photographer)
         db.session.commit()
 
-        # ── Welcome email, sent in the background ─────────────────────────
-        # Includes login details when an account was created.
+        # ── NEW: welcome email, sent in the background ────────────────────
+        # The profile is already saved, so a slow or failing email never
+        # blocks the admin. Only fires when an email address was provided.
         photog_id = new_photographer.id
 
-        def _welcome_worker(pid, plain_pw):
+        def _welcome_worker(pid):
             with app.app_context():
                 try:
                     p = db.session.get(Photographer, pid)
                     if p:
-                        send_photographer_welcome_email(p, plain_pw)
+                        send_photographer_welcome_email(p)
                 except Exception as e:
                     print(f"[MAIL] welcome email failed: {type(e).__name__}: {e}")
 
-        threading.Thread(target=_welcome_worker,
-                         args=(photog_id, raw_password if username else None),
-                         daemon=True).start()
+        threading.Thread(target=_welcome_worker, args=(photog_id,), daemon=True).start()
 
+        # Tell the admin exactly what happened — including when no email was sent.
         if email:
             flash(f"Photographer '{name}' added successfully. "
                   f"A welcome email has been sent to {email}.", "success")
@@ -3482,10 +2021,7 @@ def admin_photographer_add():
         return redirect(url_for("admin_photographers"))
 
     return render_template("admin/photographer_form.html",
-                           photographer=None, action="Add",
-                           all_services=PHOTOGRAPHY_SERVICES,
-                           all_styles=PHOTOGRAPHY_STYLES,
-                           all_regions=GHANA_REGIONS)
+                           photographer=None, action="Add")
 
 
 @app.route("/admin/photographer/edit/<int:photographer_id>", methods=["GET", "POST"])
@@ -3500,68 +2036,10 @@ def admin_photographer_edit(photographer_id):
         photographer.email         = request.form.get("email",         "").strip()
         photographer.phone         = request.form.get("phone",         "").strip()
         photographer.bio           = request.form.get("bio",           "").strip()
-        photographer.locations     = _collect_checkboxes("locations", GHANA_REGIONS)
-        photographer.base_town     = request.form.get("base_town", "").strip() or None
-        _br = request.form.get("base_region", "").strip()
-        photographer.base_region   = _br if _br in GHANA_REGIONS else None
-        photographer.covers_nationwide = request.form.get("covers_nationwide") == "on"
-        photographer.services      = _collect_checkboxes("services", PHOTOGRAPHY_SERVICES)
-        photographer.styles        = _collect_checkboxes("styles",   PHOTOGRAPHY_STYLES)
+        photographer.services      = request.form.get("services",      "").strip()
+        photographer.locations     = request.form.get("locations",     "").strip()
+        photographer.styles        = request.form.get("styles",        "").strip()
         photographer.is_active     = request.form.get("is_active") == "on"
-
-        # ── Login credentials ─────────────────────────────────────────────
-        # Lets the admin create an account for a photographer who does not
-        # have one yet, or reset the password of one who has forgotten it.
-        # Leaving the password blank keeps the existing password unchanged.
-        new_username = request.form.get("username", "").strip()
-        new_password = request.form.get("password", "").strip()
-
-        if new_username:
-            # Usernames must stay unique across all photographers.
-            clash = (Photographer.query
-                     .filter(Photographer.username == new_username,
-                             Photographer.id != photographer.id)
-                     .first())
-            if clash:
-                flash(f"The username '{new_username}' is already taken by "
-                      "another photographer. Choose a different one.", "danger")
-                return redirect(url_for("admin_photographer_edit",
-                                        photographer_id=photographer.id))
-
-            had_account = bool(photographer.username)
-            photographer.username = new_username
-
-            if new_password:
-                if len(new_password) < 6:
-                    flash("The password must be at least 6 characters.", "danger")
-                    return redirect(url_for("admin_photographer_edit",
-                                            photographer_id=photographer.id))
-                photographer.password = generate_password_hash(new_password)
-                # Any password the admin sets is temporary by definition.
-                photographer.must_change_password = True
-                credentials_changed = True
-            elif not photographer.password:
-                # A username with no password would create an account that
-                # can never be logged into.
-                flash("Please set a password so this photographer can log in.",
-                      "danger")
-                return redirect(url_for("admin_photographer_edit",
-                                        photographer_id=photographer.id))
-            else:
-                credentials_changed = False
-        else:
-            credentials_changed = False
-            new_password = None
-
-        # Ghana Card details (admin-only)
-        photographer.ghana_card_number = \
-            request.form.get("ghana_card_number", "").strip().upper() or None
-
-        if "ghana_card_image" in request.files and request.files["ghana_card_image"].filename:
-            new_card = _save_private_file(request.files["ghana_card_image"], "ghana_cards")
-            if new_card:
-                _delete_private_file(photographer.ghana_card_image, "ghana_cards")
-                photographer.ghana_card_image = new_card
 
         try:
             photographer.experience = int(request.form.get("experience", "0"))
@@ -3576,40 +2054,11 @@ def admin_photographer_edit(photographer_id):
                 photographer.profile_image = new_img
 
         db.session.commit()
-
-        # If the admin just issued or reset credentials, email them out so the
-        # photographer actually receives their new login details.
-        if credentials_changed and photographer.email:
-            pid_local = photographer.id
-
-            def _creds_worker(pid, plain_pw):
-                with app.app_context():
-                    try:
-                        p = db.session.get(Photographer, pid)
-                        if p:
-                            send_photographer_credentials_email(p, plain_pw)
-                    except Exception as e:
-                        print(f"[MAIL] credentials email failed: {type(e).__name__}: {e}")
-
-            threading.Thread(target=_creds_worker,
-                             args=(pid_local, new_password), daemon=True).start()
-
-            flash(f"Photographer '{photographer.name}' updated. Their login "
-                  f"details have been emailed to {photographer.email}.", "success")
-        elif credentials_changed:
-            flash(f"Photographer '{photographer.name}' updated. Login set to "
-                  f"username '{photographer.username}' — no email address on "
-                  f"file, so tell them the password directly.", "warning")
-        else:
-            flash(f"Photographer '{photographer.name}' updated successfully.", "success")
-
+        flash(f"Photographer '{photographer.name}' updated successfully.", "success")
         return redirect(url_for("admin_photographers"))
 
     return render_template("admin/photographer_form.html",
-                           photographer=photographer, action="Edit",
-                           all_services=PHOTOGRAPHY_SERVICES,
-                           all_styles=PHOTOGRAPHY_STYLES,
-                           all_regions=GHANA_REGIONS)
+                           photographer=photographer, action="Edit")
 
 
 @app.route("/admin/photographer/delete/<int:photographer_id>", methods=["POST"])
@@ -3631,105 +2080,47 @@ def admin_photographer_delete(photographer_id):
     return redirect(url_for("admin_photographers"))
 
 
-@app.route("/admin/portfolio/remove/<int:portfolio_id>", methods=["POST"])
+@app.route("/admin/photographer/<int:photographer_id>/upload-portfolio", methods=["POST"])
 @login_required
-def admin_portfolio_remove(portfolio_id):
-    """
-    Admin moderation: removes an inappropriate portfolio image.
+def admin_portfolio_upload(photographer_id):
+    """Upload one or more portfolio images for a photographer."""
+    photographer = Photographer.query.get_or_404(photographer_id)
+    files        = request.files.getlist("portfolio_images")
+    title        = request.form.get("title",    "").strip()
+    category     = request.form.get("category", "").strip()
+    uploaded     = 0
 
-    This is a SOFT delete -- the row and the image file are kept so there is a
-    record of what was removed and why. The image disappears from the public
-    profile and the photographer's active portfolio immediately, and the
-    photographer is emailed the reason.
+    for f in files:
+        filename = _save_uploaded_image(f, "portfolio")
+        if filename:
+            db.session.add(PhotographerPortfolio(
+                photographer_id=photographer.id,
+                image=filename,
+                title=title or None,
+                category=category or None,
+            ))
+            uploaded += 1
 
-    A written reason is REQUIRED. Removing someone's work without telling them
-    why is both unfair and impossible to defend if they complain.
-    """
-    item   = db.session.get(PhotographerPortfolio, portfolio_id)
-    reason = request.form.get("reason", "").strip()
-
-    if not item:
-        flash("That portfolio image no longer exists.", "warning")
-        return redirect(url_for("admin_photographers"))
-
-    if not reason:
-        flash("Please give a reason for removing this image. "
-              "The photographer is told why.", "danger")
-        return redirect(url_for("admin_photographer_edit",
-                                photographer_id=item.photographer_id))
-
-    item.is_removed     = True
-    item.removal_reason = reason
-    item.removed_at     = datetime.utcnow()
-    db.session.commit()
-
-    photographer = item.photographer
-    pid          = item.photographer_id
-
-    # Tell the photographer, in the background so the admin page returns fast.
-    if photographer and photographer.email:
-        def _removal_worker(item_id):
-            with app.app_context():
-                try:
-                    it = db.session.get(PhotographerPortfolio, item_id)
-                    if it:
-                        send_portfolio_removal_email(it)
-                except Exception as e:
-                    print(f"[MAIL] removal email failed: {type(e).__name__}: {e}")
-
-        threading.Thread(target=_removal_worker, args=(item.id,), daemon=True).start()
-        flash(f"Image removed. {photographer.name} has been emailed the reason.",
-              "success")
+    if uploaded:
+        db.session.commit()
+        flash(f"{uploaded} portfolio image(s) uploaded successfully.", "success")
     else:
-        flash("Image removed. The photographer has no email address on file, "
-              "so please tell them directly.", "warning")
+        flash("No valid images were uploaded. Please use JPG, PNG, or WEBP.", "warning")
 
-    return redirect(url_for("admin_photographer_edit", photographer_id=pid))
-
-
-@app.route("/admin/portfolio/restore/<int:portfolio_id>", methods=["POST"])
-@login_required
-def admin_portfolio_restore(portfolio_id):
-    """
-    Puts a removed image back -- for when a removal was a mistake.
-    Only possible because removal is a soft delete.
-    """
-    item = db.session.get(PhotographerPortfolio, portfolio_id)
-    if not item:
-        flash("That portfolio image no longer exists.", "warning")
-        return redirect(url_for("admin_photographers"))
-
-    item.is_removed     = False
-    item.removal_reason = None
-    item.removed_at     = None
-    db.session.commit()
-
-    flash("Image restored to the photographer's portfolio.", "success")
-    return redirect(url_for("admin_photographer_edit",
-                            photographer_id=item.photographer_id))
+    return redirect(url_for("admin_photographer_edit", photographer_id=photographer_id))
 
 
 @app.route("/admin/portfolio/delete/<int:portfolio_id>", methods=["POST"])
 @login_required
 def admin_portfolio_delete(portfolio_id):
-    """
-    Permanently deletes a portfolio image and its file.
-
-    Use this only to clear out images already removed and settled -- normal
-    moderation should use the soft removal above, which keeps the audit trail.
-    """
-    item = db.session.get(PhotographerPortfolio, portfolio_id)
-    if not item:
-        flash("That portfolio image no longer exists.", "warning")
-        return redirect(url_for("admin_photographers"))
-
-    pid = item.photographer_id
+    """Delete a single portfolio image."""
+    item = PhotographerPortfolio.query.get_or_404(portfolio_id)
+    photographer_id = item.photographer_id
     _delete_image_file(item.image, "portfolio")
     db.session.delete(item)
     db.session.commit()
-
-    flash("Portfolio image permanently deleted.", "success")
-    return redirect(url_for("admin_photographer_edit", photographer_id=pid))
+    flash("Portfolio image deleted.", "success")
+    return redirect(url_for("admin_photographer_edit", photographer_id=photographer_id))
 
 
 @app.route("/admin/enquiry/<int:enquiry_id>/mark-reviewed", methods=["POST"])

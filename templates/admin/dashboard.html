@@ -59,6 +59,18 @@
             <i class="bi bi-graph-up me-1"></i>Analytics
         </button>
     </li>
+    <!-- ── NEW: Photographers tab (sits next to Analytics) ── -->
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="photographers-tab" data-bs-toggle="tab"
+                data-bs-target="#photographers-pane" type="button" role="tab">
+            <i class="bi bi-people-fill me-1"></i>Photographers
+            {% if pending_enquiries and pending_enquiries > 0 %}
+            <span class="badge rounded-pill bg-warning text-dark ms-1">
+                {{ pending_enquiries }}
+            </span>
+            {% endif %}
+        </button>
+    </li>
 </ul>
 
 <!-- ===== Tab content ===== -->
@@ -90,7 +102,18 @@
                     <tbody>
                         {% for appt in appointments %}
                         <tr>
-                            <td>{{ appt.id }}</td>
+                            <!-- Sequential display number.
+                                 loop.index counts 1, 2, 3... down the table, so
+                                 deleted bookings never leave gaps in this column.
+                                 The real database id is kept underneath because
+                                 reviews, review links and the photographer link
+                                 all depend on it — renumbering rows would break them. -->
+                            <td>
+                                <strong>{{ loop.index }}</strong><br>
+                                <small class="text-muted" style="font-size:0.72rem;">
+                                    ID {{ appt.id }}
+                                </small>
+                            </td>
                             <td>
                                 <strong>{{ appt.customer_name }}</strong><br>
                                 <small class="text-muted">{{ appt.phone }}</small>
@@ -235,10 +258,103 @@
     </div>
     <!-- ---------- end Analytics tab ---------- -->
 
+
+    <!-- ---------- TAB 3: Photographers (NEW) ---------- -->
+    <div class="tab-pane fade" id="photographers-pane" role="tabpanel">
+
+        <!-- Photographer summary cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="admin-card text-center">
+                    <h3 class="fw-bold text-primary">{{ total_photographers or 0 }}</h3>
+                    <p class="text-muted mb-0">Total Photographers</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="admin-card text-center">
+                    <h3 class="fw-bold text-success">{{ active_photographers or 0 }}</h3>
+                    <p class="text-muted mb-0">Active Profiles</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="admin-card text-center">
+                    <h3 class="fw-bold text-warning">{{ pending_enquiries or 0 }}</h3>
+                    <p class="text-muted mb-0">New Enquiries</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Management panel -->
+        <div class="admin-card">
+            <h5 class="fw-bold mb-3">
+                <i class="bi bi-people-fill me-2"></i>Photographer Network
+            </h5>
+
+            <p class="text-muted" style="font-size:0.92rem;">
+                Photographers listed on LensCraft are added and managed by the studio
+                administrator. Customers browse these profiles on the public
+                <strong>Find a Photographer</strong> page, view portfolios, and use the
+                AI Photographer Finder to get matched based on their needs.
+            </p>
+
+            <!-- Quick action buttons -->
+            <div class="row g-3 mt-2">
+
+                <div class="col-md-4">
+                    <a href="{{ url_for('admin_photographers') }}"
+                       class="btn btn-dark w-100 py-3 text-start">
+                        <i class="bi bi-list-ul me-2" style="font-size:1.2rem;"></i>
+                        <strong>Manage Photographers</strong><br>
+                        <small style="opacity:0.75;">View, edit, and remove profiles</small>
+                    </a>
+                </div>
+
+                <div class="col-md-4">
+                    <a href="{{ url_for('admin_photographer_add') }}"
+                       class="btn btn-outline-dark w-100 py-3 text-start">
+                        <i class="bi bi-plus-circle me-2" style="font-size:1.2rem;"></i>
+                        <strong>Add Photographer</strong><br>
+                        <small class="text-muted">Create a new profile</small>
+                    </a>
+                </div>
+
+                <div class="col-md-4">
+                    <a href="{{ url_for('admin_photographers') }}"
+                       class="btn btn-outline-dark w-100 py-3 text-start position-relative">
+                        <i class="bi bi-inbox me-2" style="font-size:1.2rem;"></i>
+                        <strong>View Enquiries</strong><br>
+                        <small class="text-muted">Photographers wanting to join</small>
+                        {% if pending_enquiries and pending_enquiries > 0 %}
+                        <span class="position-absolute top-0 end-0 mt-2 me-2 badge rounded-pill bg-warning text-dark">
+                            {{ pending_enquiries }} new
+                        </span>
+                        {% endif %}
+                    </a>
+                </div>
+
+            </div>
+
+            <!-- Public page preview link -->
+            <div class="mt-4 pt-3 border-top">
+                <a href="{{ url_for('photographers') }}" target="_blank"
+                   class="text-decoration-none text-muted" style="font-size:0.88rem;">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>
+                    Preview the public Find a Photographer page
+                </a>
+            </div>
+
+        </div>
+
+    </div>
+    <!-- ---------- end Photographers tab ---------- -->
+
 </div>
 <!-- ===== end tab content ===== -->
 
+{% endblock %}
 
+
+{% block scripts %}
 <!-- ===== Feature 2: Chart.js scripts ===== -->
 {% if appointments %}
 <!-- Load the free Chart.js library (draws the charts for us) -->
@@ -320,5 +436,4 @@
 </script>
 {% endif %}
 <!-- ===== End Chart.js scripts ===== -->
-
 {% endblock %}

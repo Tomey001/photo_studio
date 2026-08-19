@@ -1,0 +1,268 @@
+{% extends 'base.html' %}
+
+{% block title %}Manage Photographers — Admin{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold mb-0">
+            <i class="bi bi-people-fill me-2"></i>Manage Photographers
+        </h2>
+        <p class="text-muted mb-0">Add, edit, and manage photographer profiles on the platform.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-speedometer2 me-1"></i> Dashboard
+        </a>
+        <a href="{{ url_for('admin_photographer_add') }}" class="btn btn-dark">
+            <i class="bi bi-plus-circle me-1"></i> Add Photographer
+        </a>
+    </div>
+</div>
+
+<!-- Stats row -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <h3 class="fw-bold text-dark">{{ photographers|length }}</h3>
+            <p class="text-muted mb-0 small">Total Photographers</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <h3 class="fw-bold text-success">{{ photographers|selectattr('is_active')|list|length }}</h3>
+            <p class="text-muted mb-0 small">Active Profiles</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <h3 class="fw-bold text-warning">{{ enquiries|selectattr('reviewed', 'equalto', false)|list|length }}</h3>
+            <p class="text-muted mb-0 small">Pending Enquiries</p>
+        </div>
+    </div>
+</div>
+
+<!-- Photographers table -->
+<div class="card border-0 shadow-sm mb-5">
+    <div class="card-body p-0">
+        <div class="p-4 border-bottom">
+            <h5 class="fw-bold mb-0">
+                <i class="bi bi-camera me-2"></i>Registered Photographers
+            </h5>
+        </div>
+
+        {% if photographers %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Photographer</th>
+                        <th>Services</th>
+                        <th>Location</th>
+                        <th>Portfolio</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for photographer in photographers %}
+                    <tr>
+                        <td>
+                            <div class="d-flex align-items-center gap-3">
+                                {% if photographer.profile_image %}
+                                <img src="{{ url_for('static', filename='img/photographers/' ~ photographer.profile_image) }}"
+                                     alt="{{ photographer.name }}"
+                                     style="width:44px;height:44px;border-radius:50%;object-fit:cover;">
+                                {% else %}
+                                <div style="width:44px;height:44px;border-radius:50%;
+                                            background:#e8f0fe;display:flex;
+                                            align-items:center;justify-content:center;">
+                                    <i class="bi bi-person" style="color:#0f3460;"></i>
+                                </div>
+                                {% endif %}
+                                <div>
+                                    <p class="mb-0 fw-bold">{{ photographer.name }}</p>
+                                    {% if photographer.business_name %}
+                                    <small class="text-muted">{{ photographer.business_name }}</small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <small class="text-muted">
+                                {{ photographer.services_list()[:2]|join(', ') }}
+                                {% if photographer.services_list()|length > 2 %}
+                                +{{ photographer.services_list()|length - 2 }} more
+                                {% endif %}
+                            </small>
+                        </td>
+                        <td>
+                            <small class="text-muted">
+                                {{ photographer.locations_list()[:1]|join(', ') or '—' }}
+                            </small>
+                        </td>
+                        <td>
+                            <span class="badge bg-light text-dark">
+                                {{ photographer.portfolio|length }} image{% if photographer.portfolio|length != 1 %}s{% endif %}
+                            </span>
+                        </td>
+                        <td>
+                            {% if photographer.is_active %}
+                            <span class="badge bg-success">Active</span>
+                            {% else %}
+                            <span class="badge bg-secondary">Hidden</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="d-flex gap-1">
+                                <a href="{{ url_for('photographer_profile', photographer_id=photographer.id) }}"
+                                   class="btn btn-sm btn-outline-dark" target="_blank" title="View public profile">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                <a href="{{ url_for('admin_photographer_edit', photographer_id=photographer.id) }}"
+                                   class="btn btn-sm btn-outline-primary" title="Edit">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                <form method="POST"
+                                      action="{{ url_for('admin_photographer_delete', photographer_id=photographer.id) }}"
+                                      onsubmit="return confirm('Delete {{ photographer.name }}? This cannot be undone.');"
+                                      style="display:inline;">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-people" style="font-size:3rem;"></i>
+            <p class="mt-3">No photographers registered yet.</p>
+            <a href="{{ url_for('admin_photographer_add') }}" class="btn btn-dark">
+                <i class="bi bi-plus-circle me-1"></i> Add First Photographer
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Enquiries table -->
+<div class="card border-0 shadow-sm" id="enquiries">
+    <div class="card-body p-0">
+        <div class="p-4 border-bottom">
+            <h5 class="fw-bold mb-0">
+                <i class="bi bi-inbox me-2"></i>Photographer Enquiries
+                {% set pending_count = enquiries|selectattr('reviewed', 'equalto', false)|list|length %}
+                {% if pending_count > 0 %}
+                <span class="badge bg-warning text-dark ms-2">{{ pending_count }} new</span>
+                {% endif %}
+            </h5>
+        </div>
+
+        {% if enquiries %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Name</th>
+                        <th>Contact</th>
+                        <th>Services</th>
+                        <th>Location</th>
+                        <th>Ghana Card</th>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for enquiry in enquiries %}
+                    <tr {% if not enquiry.reviewed %}class="table-warning"{% endif %}>
+                        <td class="fw-bold">{{ enquiry.name }}</td>
+                        <td>
+                            <small>
+                                {% if enquiry.phone %}
+                                <a href="tel:{{ enquiry.phone }}" class="d-block text-dark text-decoration-none">
+                                    <i class="bi bi-telephone me-1"></i>{{ enquiry.phone }}
+                                </a>
+                                {% endif %}
+                                {% if enquiry.email %}
+                                <a href="mailto:{{ enquiry.email }}" class="d-block text-dark text-decoration-none">
+                                    <i class="bi bi-envelope me-1"></i>{{ enquiry.email }}
+                                </a>
+                                {% endif %}
+                            </small>
+                        </td>
+                        <td><small class="text-muted">{{ enquiry.services or '—' }}</small></td>
+                        <td><small class="text-muted">{{ enquiry.location or '—' }}</small></td>
+                        <td>
+                            {% if enquiry.ghana_card_number %}
+                            <small class="d-block"><code>{{ enquiry.ghana_card_number }}</code></small>
+                            {% if enquiry.ghana_card_image %}
+                            <a href="{{ url_for('admin_view_enquiry_card', enquiry_id=enquiry.id) }}"
+                               target="_blank" class="btn btn-sm btn-outline-dark mt-1"
+                               style="font-size:0.72rem;padding:1px 8px;">
+                                <i class="bi bi-eye"></i> View card
+                            </a>
+                            {% endif %}
+                            {% else %}
+                            <small class="text-muted">—</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <small class="text-muted">
+                                {{ enquiry.created_at.strftime('%d %b %Y') if enquiry.created_at else '—' }}
+                            </small>
+                        </td>
+                        <td>
+                            {% if enquiry.reviewed %}
+                            <span class="badge bg-secondary">Reviewed</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">New</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="d-flex gap-1">
+                                {% if not enquiry.reviewed %}
+                                <form method="POST"
+                                      action="{{ url_for('admin_enquiry_reviewed', enquiry_id=enquiry.id) }}"
+                                      style="display:inline;">
+                                    <button type="submit" class="btn btn-sm btn-success" title="Mark reviewed">
+                                        <i class="bi bi-check-lg"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
+                                <!-- Quick action: create photographer from enquiry -->
+                                <a href="{{ url_for('admin_photographer_add') }}?name={{ enquiry.name }}&phone={{ enquiry.phone }}&email={{ enquiry.email }}&location={{ enquiry.location }}&services={{ enquiry.services }}"
+                                   class="btn btn-sm btn-outline-dark" title="Create photographer profile from this enquiry">
+                                    <i class="bi bi-person-plus"></i>
+                                </a>
+                                <form method="POST"
+                                      action="{{ url_for('admin_enquiry_delete', enquiry_id=enquiry.id) }}"
+                                      onsubmit="return confirm('Delete this enquiry?');"
+                                      style="display:inline;">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-4 text-muted">
+            <i class="bi bi-inbox" style="font-size:2.5rem;"></i>
+            <p class="mt-2">No enquiries yet.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

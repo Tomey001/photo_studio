@@ -1,0 +1,615 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ action }} Photographer — Admin{% endblock %}
+
+{% block content %}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold mb-0">
+            <i class="bi bi-person-{% if action == 'Add' %}plus{% else %}gear{% endif %} me-2"></i>
+            {{ action }} Photographer
+        </h2>
+        <p class="text-muted mb-0">
+            {% if action == 'Add' %}
+            Create a new photographer profile for the network.
+            {% else %}
+            Update this photographer's details and portfolio.
+            {% endif %}
+        </p>
+    </div>
+    <a href="{{ url_for('admin_photographers') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>Back to List
+    </a>
+</div>
+
+<div class="row g-4">
+
+    <!-- ═══════════════════════════════════════════════════════════
+         LEFT COLUMN — the profile form
+         ═══════════════════════════════════════════════════════════ -->
+    <div class="col-lg-{% if photographer %}7{% else %}12{% endif %}">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+
+                <!-- enctype is REQUIRED for file uploads to work -->
+                <form method="POST" enctype="multipart/form-data"
+                      action="{% if photographer %}{{ url_for('admin_photographer_edit', photographer_id=photographer.id) }}{% else %}{{ url_for('admin_photographer_add') }}{% endif %}">
+
+                    <div class="row g-3">
+
+                        <!-- Name (required) -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">
+                                Full Name <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" name="name" class="form-control"
+                                   placeholder="e.g. Kwame Asante"
+                                   value="{{ photographer.name if photographer else request.args.get('name', '') }}"
+                                   required>
+                        </div>
+
+                        <!-- Business name -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Business Name</label>
+                            <input type="text" name="business_name" class="form-control"
+                                   placeholder="e.g. Asante Visuals"
+                                   value="{{ photographer.business_name or '' if photographer else '' }}">
+                        </div>
+
+                        <!-- Email -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Email Address</label>
+                            <input type="email" name="email" class="form-control"
+                                   placeholder="photographer@email.com"
+                                   value="{{ photographer.email or '' if photographer else request.args.get('email', '') }}">
+                        </div>
+
+                        <!-- Phone -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Phone Number</label>
+                            <input type="tel" name="phone" class="form-control"
+                                   placeholder="e.g. 0244123456"
+                                   value="{{ photographer.phone or '' if photographer else request.args.get('phone', '') }}">
+                        </div>
+
+                        <!-- Bio -->
+                        <div class="col-12">
+                            <label class="form-label fw-bold">Biography</label>
+                            <textarea name="bio" class="form-control" rows="4"
+                                      placeholder="A short introduction — experience, approach, what makes their work distinctive...">{{ photographer.bio or '' if photographer else '' }}</textarea>
+                        </div>
+
+                        <!-- Services -->
+                        <div class="col-12">
+                            <label class="form-label fw-bold">Services Offered</label>
+                            <div class="p-3 rounded" style="background:#f8f9fa;">
+                                <div class="form-check mb-2 pb-2 border-bottom">
+                                    <input class="form-check-input" type="checkbox" id="allSvc">
+                                    <label class="form-check-label fw-bold" for="allSvc">
+                                        Select all
+                                    </label>
+                                </div>
+                                <div class="row g-2">
+                                    {% for opt in all_services %}
+                                    <div class="col-md-6 col-12">
+                                        <div class="form-check">
+                                            <input class="form-check-input svc-check"
+                                                   type="checkbox" name="services"
+                                                   value="{{ opt }}"
+                                                   id="svc{{ loop.index }}"
+                                                   {% if opt in (photographer.services_list() if photographer else []) %}checked{% endif %}>
+                                            <label class="form-check-label" for="svc{{ loop.index }}"
+                                                   style="font-size:0.88rem;">
+                                                {{ opt }}
+                                            </label>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div class="form-text">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Used by the search filters and the AI matcher.
+                            </div>
+                        </div>
+
+                        <!-- Locations -->
+                        <div class="col-12">
+                            <hr class="my-2">
+                            <h6 class="fw-bold mb-1">
+                                <i class="bi bi-geo-alt me-2" style="color:#0f3460;"></i>
+                                Location &amp; Coverage
+                            </h6>
+                            <p class="text-muted mb-2" style="font-size:0.86rem;">
+                                Where they are based, and which regions they will
+                                travel to. Customers filter on this.
+                            </p>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Town / City Based In</label>
+                            <input type="text" name="base_town" class="form-control"
+                                   placeholder="e.g. Kasoa"
+                                   value="{{ photographer.base_town or '' if photographer else '' }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Region Based In</label>
+                            <select name="base_region" class="form-select">
+                                <option value="">-- Select region --</option>
+                                {% for r in all_regions %}
+                                <option value="{{ r }}"
+                                    {% if photographer and photographer.base_region == r %}selected{% endif %}>
+                                    {{ r }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <div class="form-check p-3 rounded" style="background:#e8f5e9; padding-left:3rem !important;">
+                                <input class="form-check-input" type="checkbox"
+                                       name="covers_nationwide" id="nationwideA"
+                                       {% if photographer and photographer.covers_nationwide %}checked{% endif %}>
+                                <label class="form-check-label fw-bold" for="nationwideA">
+                                    Available anywhere in Ghana
+                                </label>
+                                <div class="form-text mb-0">
+                                    Tick this to appear for customers in every region.
+                                    A photographer based in Kasoa can still shoot in Tamale.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label fw-bold">Regions Travelled To</label>
+                            <div class="p-3 rounded" style="background:#f8f9fa;">
+                                <div class="row g-2">
+                                    {% for r in all_regions %}
+                                    <div class="col-md-3 col-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox"
+                                                   name="locations" value="{{ r }}"
+                                                   id="areg{{ loop.index }}"
+                                                   {% if photographer and r in photographer.locations_list() %}checked{% endif %}>
+                                            <label class="form-check-label" for="areg{{ loop.index }}"
+                                                   style="font-size:0.85rem;">{{ r }}</label>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div class="form-text">
+                                Only needed if not available nationwide.
+                            </div>
+                        </div>
+
+                        <!-- Styles -->
+                        <div class="col-md-8">
+                            <label class="form-label fw-bold">Photography Styles</label>
+                            <div class="p-3 rounded" style="background:#f8f9fa;">
+                                <div class="row g-2">
+                                    {% for opt in all_styles %}
+                                    <div class="col-md-6 col-12">
+                                        <div class="form-check">
+                                            <input class="form-check-input sty-check"
+                                                   type="checkbox" name="styles"
+                                                   value="{{ opt }}"
+                                                   id="sty{{ loop.index }}"
+                                                   {% if opt in (photographer.styles_list() if photographer else []) %}checked{% endif %}>
+                                            <label class="form-check-label" for="sty{{ loop.index }}"
+                                                   style="font-size:0.88rem;">
+                                                {{ opt }}
+                                            </label>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div class="form-text">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Tick every style this photographer works in.
+                            </div>
+                        </div>
+
+                        <!-- Experience -->
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Years of Experience</label>
+                            <input type="number" name="experience" class="form-control"
+                                   min="0" max="70" placeholder="0"
+                                   value="{{ photographer.experience or 0 if photographer else 0 }}">
+                        </div>
+
+                        <!-- Profile image -->
+                        <div class="col-12">
+                            <label class="form-label fw-bold">Profile Photo</label>
+
+                            {% if photographer and photographer.profile_image %}
+                            <div class="d-flex align-items-center gap-3 mb-2">
+                                <img src="{{ url_for('static', filename='img/photographers/' ~ photographer.profile_image) }}"
+                                     alt="{{ photographer.name }}"
+                                     style="width:70px; height:70px; border-radius:50%; object-fit:cover;">
+                                <small class="text-muted">
+                                    Current photo. Choosing a new file below will replace it.
+                                </small>
+                            </div>
+                            {% endif %}
+
+                            <input type="file" name="profile_image" class="form-control"
+                                   accept=".jpg,.jpeg,.png,.webp">
+                            <div class="form-text">
+                                <i class="bi bi-info-circle me-1"></i>
+                                JPG, PNG, or WEBP. Maximum 5 MB. Square images look best.
+                            </div>
+                        </div>
+
+                        <!-- ═══ Login credentials ═══ -->
+                        {% if not photographer %}
+                        <div class="col-12">
+                            <hr class="my-2">
+                            <h6 class="fw-bold mb-1">
+                                <i class="bi bi-key me-2" style="color:#0f3460;"></i>
+                                Photographer Login
+                            </h6>
+                            <p class="text-muted mb-2" style="font-size:0.86rem;">
+                                Creates an account so this photographer can log in and manage
+                                their own portfolio. The password is emailed to them and stored
+                                only as a secure hash. Leave both blank to create a
+                                profile with no login.
+                            </p>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Username</label>
+                            <input type="text" name="username" class="form-control"
+                                   placeholder="e.g. kwame.asante">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Initial Password</label>
+                            <input type="text" name="password" class="form-control"
+                                   placeholder="At least 6 characters">
+                            <div class="form-text">
+                                They will be asked to change it after first login.
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="col-12">
+                            <hr class="my-2">
+                            <h6 class="fw-bold mb-1">
+                                <i class="bi bi-key me-2" style="color:#0f3460;"></i>
+                                Photographer Login
+                            </h6>
+                            {% if photographer.username %}
+                            <p class="mb-2" style="font-size:0.9rem;">
+                                <span class="badge bg-success">Account active</span>
+                                Leave the password blank to keep the current one,
+                                or enter a new one to reset it.
+                            </p>
+                            {% else %}
+                            <p class="mb-2" style="font-size:0.9rem;">
+                                <span class="badge bg-secondary">No login account</span>
+                                Set a username and password below to give this
+                                photographer access to their portal.
+                            </p>
+                            {% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Username</label>
+                            <input type="text" name="username" class="form-control"
+                                   placeholder="e.g. kwame.asante"
+                                   value="{{ photographer.username or '' }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">
+                                {% if photographer.username %}
+                                Reset Password
+                                {% else %}
+                                Set Password
+                                {% endif %}
+                            </label>
+                            <input type="text" name="password" class="form-control"
+                                   placeholder="{% if photographer.username %}Leave blank to keep current{% else %}At least 6 characters{% endif %}">
+                            <div class="form-text">
+                                {% if photographer.email %}
+                                New details are emailed to {{ photographer.email }}.
+                                {% else %}
+                                No email on file — tell them the password directly.
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- ═══ Ghana Card ═══ -->
+                        <div class="col-12">
+                            <hr class="my-2">
+                            <h6 class="fw-bold mb-1">
+                                <i class="bi bi-person-vcard me-2" style="color:#0f3460;"></i>
+                                Identity Verification
+                            </h6>
+                            <p class="text-muted mb-2" style="font-size:0.86rem;">
+                                Admin-only. Never shown on the public profile.
+                            </p>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Ghana Card Number</label>
+                            <input type="text" name="ghana_card_number" class="form-control"
+                                   placeholder="GHA-XXXXXXXXX-X"
+                                   value="{{ photographer.ghana_card_number or '' if photographer else '' }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Ghana Card Photo</label>
+                            {% if photographer and photographer.ghana_card_image %}
+                            <div class="mb-2">
+                                <a href="{{ url_for('admin_view_photographer_card', photographer_id=photographer.id) }}"
+                                   target="_blank" class="btn btn-sm btn-outline-dark">
+                                    <i class="bi bi-eye me-1"></i>View card on file
+                                </a>
+                            </div>
+                            {% endif %}
+                            <input type="file" name="ghana_card_image" class="form-control"
+                                   accept=".jpg,.jpeg,.png,.webp">
+                            <div class="form-text">Stored privately, outside the public folder.</div>
+                        </div>
+
+                        <!-- Visibility toggle -->
+                        <div class="col-12">
+                            <div class="form-check form-switch p-3 rounded"
+                                 style="background:#f8f9fa; padding-left:3rem !important;">
+                                <input class="form-check-input" type="checkbox"
+                                       name="is_active" id="is_active"
+                                       {% if not photographer or photographer.is_active %}checked{% endif %}>
+                                <label class="form-check-label fw-bold" for="is_active">
+                                    Visible to customers
+                                </label>
+                                <div class="form-text mb-0">
+                                    When switched off, this profile is hidden from the public
+                                    Find a Photographer page and excluded from AI matching.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Submit -->
+                        <div class="col-12 d-flex gap-2">
+                            <button type="submit" class="btn btn-dark px-5 py-2 fw-bold">
+                                <i class="bi bi-check-lg me-2"></i>
+                                {% if action == 'Add' %}Create Profile{% else %}Save Changes{% endif %}
+                            </button>
+                            <a href="{{ url_for('admin_photographers') }}"
+                               class="btn btn-outline-secondary px-4 py-2">
+                                Cancel
+                            </a>
+                        </div>
+
+                    </div>
+                </form>
+
+            </div>
+        </div>
+
+        {% if action == 'Add' %}
+        <div class="alert alert-info mt-3 mb-0" role="alert">
+            <i class="bi bi-lightbulb me-2"></i>
+            <strong>What happens next:</strong> once saved, the photographer
+            receives their login details by email and uploads their own
+            portfolio from their portal. You can review and moderate those
+            images from this photographer's Edit page.
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         RIGHT COLUMN — portfolio management (edit mode only)
+         ═══════════════════════════════════════════════════════════ -->
+    {% if photographer %}
+    <div class="col-lg-5">
+
+        <!-- Moderation notice -->
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body p-4">
+                <h5 class="fw-bold mb-2">
+                    <i class="bi bi-shield-check me-2"></i>Portfolio Moderation
+                </h5>
+                <p class="text-muted mb-0" style="font-size:0.88rem;">
+                    Photographers upload and manage their own images from their
+                    portal. Use the controls below only to remove content that is
+                    inappropriate. A reason is required and is emailed to them.
+                </p>
+            </div>
+        </div>
+
+        <!-- Live portfolio -->
+        {% set active = photographer.portfolio | rejectattr('is_removed') | list %}
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body p-4">
+                <h5 class="fw-bold mb-3">
+                    <i class="bi bi-images me-2"></i>Live Portfolio
+                    <span class="badge bg-light text-dark ms-1">{{ active | length }}</span>
+                </h5>
+
+                {% if active %}
+                <div class="row g-2">
+                    {% for item in active %}
+                    <div class="col-6">
+                        <div style="position:relative; border-radius:8px; overflow:hidden;">
+                            <img src="{{ url_for('static', filename='img/portfolio/' ~ item.image) }}"
+                                 alt="{{ item.title or 'Portfolio image' }}"
+                                 style="width:100%; aspect-ratio:1/1; object-fit:cover;">
+
+                            <button type="button" class="btn btn-sm btn-danger"
+                                    style="position:absolute; top:6px; right:6px;
+                                           padding:2px 7px; border-radius:6px;"
+                                    data-bs-toggle="modal" data-bs-target="#removeModal"
+                                    data-image-id="{{ item.id }}"
+                                    data-image-title="{{ item.title or 'Untitled image' }}"
+                                    title="Remove this image">
+                                <i class="bi bi-shield-x"></i>
+                            </button>
+
+                            {% if item.title %}
+                            <div style="position:absolute; bottom:0; left:0; right:0;
+                                        background:rgba(0,0,0,0.65); padding:5px 8px;">
+                                <p style="margin:0; color:white; font-size:0.72rem; font-weight:600;">
+                                    {{ item.title }}</p>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-4 text-muted">
+                    <i class="bi bi-images" style="font-size:2.5rem;"></i>
+                    <p class="mt-2 mb-0" style="font-size:0.9rem;">
+                        No images yet. The photographer uploads these from their own portal.
+                    </p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Removed images -->
+        {% set removed = photographer.portfolio | selectattr('is_removed') | list %}
+        {% if removed %}
+        <div class="card border-0 shadow-sm mb-4" style="border-left:4px solid #dc3545 !important;">
+            <div class="card-body p-4">
+                <h5 class="fw-bold mb-2">
+                    <i class="bi bi-shield-x me-2 text-danger"></i>Removed Images
+                    <span class="badge bg-danger ms-1">{{ removed | length }}</span>
+                </h5>
+                <p class="text-muted" style="font-size:0.85rem;">
+                    Hidden from the public profile. Kept as a record of what was
+                    removed and why.
+                </p>
+
+                <div class="row g-3">
+                    {% for item in removed %}
+                    <div class="col-6">
+                        <div style="position:relative; border-radius:8px; overflow:hidden;">
+                            <img src="{{ url_for('static', filename='img/portfolio/' ~ item.image) }}"
+                                 alt="Removed image"
+                                 style="width:100%; aspect-ratio:1/1; object-fit:cover;
+                                        filter:grayscale(100%); opacity:0.55;">
+                            <div style="position:absolute; top:6px; left:6px;">
+                                <span class="badge bg-danger" style="font-size:0.68rem;">Removed</span>
+                            </div>
+                        </div>
+                        <p class="text-muted mt-1 mb-1" style="font-size:0.74rem;">
+                            <strong>Reason:</strong> {{ item.removal_reason }}
+                        </p>
+                        <div class="d-flex gap-1">
+                            <form method="POST"
+                                  action="{{ url_for('admin_portfolio_restore', portfolio_id=item.id) }}"
+                                  style="display:inline;">
+                                <button type="submit" class="btn btn-sm btn-outline-success"
+                                        style="font-size:0.7rem; padding:1px 7px;">
+                                    <i class="bi bi-arrow-counterclockwise"></i> Restore
+                                </button>
+                            </form>
+                            <form method="POST"
+                                  action="{{ url_for('admin_portfolio_delete', portfolio_id=item.id) }}"
+                                  onsubmit="return confirm('Permanently delete this image and its file? This cannot be undone.');"
+                                  style="display:inline;">
+                                <button type="submit" class="btn btn-sm btn-outline-danger"
+                                        style="font-size:0.7rem; padding:1px 7px;">
+                                    <i class="bi bi-trash"></i> Delete forever
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Removal reason modal -->
+        <div class="modal fade" id="removeModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <form method="POST" id="removeForm">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                <i class="bi bi-shield-x me-2 text-danger"></i>Remove Image
+                            </h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="mb-3">
+                                Removing <strong id="removeImageTitle"></strong> from
+                                {{ photographer.name }}'s public profile.
+                            </p>
+                            <label class="form-label fw-bold">
+                                Reason <span class="text-danger">*</span>
+                            </label>
+                            <textarea name="reason" class="form-control" rows="3" required
+                                      placeholder="e.g. Image quality is too low for the platform, or the content is not suitable."></textarea>
+                            <div class="form-text">
+                                This exact wording is emailed to the photographer,
+                                so be clear and specific.
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary"
+                                    data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-danger">
+                                <i class="bi bi-shield-x me-1"></i>Remove and Notify
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Public profile preview link -->
+        <div class="mt-3 text-center">
+            <a href="{{ url_for('photographer_profile', photographer_id=photographer.id) }}"
+               target="_blank" class="text-decoration-none text-muted"
+               style="font-size:0.88rem;">
+                <i class="bi bi-box-arrow-up-right me-1"></i>
+                Preview public profile
+            </a>
+        </div>
+
+    </div>
+    {% endif %}
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // "Select all" for the services checkboxes.
+    const allSvc = document.getElementById('allSvc');
+    const svcBoxes = document.querySelectorAll('.svc-check');
+    if (allSvc) {
+        allSvc.addEventListener('change', function () {
+            svcBoxes.forEach(function (b) { b.checked = allSvc.checked; });
+        });
+        svcBoxes.forEach(function (b) {
+            b.addEventListener('change', function () {
+                allSvc.checked = Array.from(svcBoxes).every(function (x) { return x.checked; });
+            });
+        });
+    }
+
+    // Point the removal form at whichever image's button was clicked.
+    const removeModal = document.getElementById('removeModal');
+    if (removeModal) {
+        removeModal.addEventListener('show.bs.modal', function (event) {
+            const btn = event.relatedTarget;
+            document.getElementById('removeImageTitle').textContent =
+                btn.getAttribute('data-image-title');
+            document.getElementById('removeForm').action =
+                '/admin/portfolio/remove/' + btn.getAttribute('data-image-id');
+        });
+    }
+</script>
+{% endblock %}

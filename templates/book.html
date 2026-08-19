@@ -13,8 +13,67 @@
         <p class="text-muted text-center mb-4">Fill in the form below and we will confirm your booking by email.</p>
 
         <div class="booking-card">
+
+            <!-- ═══════════════════════════════════════════════════════
+                 SELECTED PHOTOGRAPHER BANNER
+                 Only appears when the customer arrived from a photographer
+                 profile, i.e. the URL was /book?photographer=<id>.
+                 ═══════════════════════════════════════════════════════ -->
+            {% if preselected_photographer %}
+            <div class="d-flex align-items-center gap-3 mb-4 p-3"
+                 style="background:#e8f5e9; border-left:4px solid #28a745;
+                        border-radius:8px;">
+
+                {% if preselected_photographer.profile_image %}
+                <img src="{{ url_for('static', filename='img/photographers/' ~ preselected_photographer.profile_image) }}"
+                     alt="{{ preselected_photographer.name }}"
+                     style="width:52px; height:52px; border-radius:50%; object-fit:cover;">
+                {% else %}
+                <div style="width:52px; height:52px; border-radius:50%;
+                            background:#0f3460; display:flex;
+                            align-items:center; justify-content:center;">
+                    <i class="bi bi-person-circle" style="color:#c5cae9; font-size:1.6rem;"></i>
+                </div>
+                {% endif %}
+
+                <div class="flex-grow-1">
+                    <p class="mb-0" style="font-size:0.78rem; color:#2e7d32; font-weight:600;">
+                        <i class="bi bi-check-circle-fill me-1"></i>BOOKING WITH
+                    </p>
+                    <p class="mb-0 fw-bold">
+                        {{ preselected_photographer.business_name or preselected_photographer.name }}
+                    </p>
+                    {% if preselected_photographer.locations %}
+                    <p class="mb-0 text-muted" style="font-size:0.8rem;">
+                        <i class="bi bi-geo-alt me-1"></i>{{ preselected_photographer.locations_list()|join(', ') }}
+                    </p>
+                    {% endif %}
+                    <!-- Lets the customer go back and check the portfolio again
+                         without losing their place or using the browser button. -->
+                    <a href="{{ url_for('photographer_profile', photographer_id=preselected_photographer.id) }}"
+                       class="text-decoration-none"
+                       style="font-size:0.78rem; color:#2e7d32;">
+                        <i class="bi bi-arrow-left me-1"></i>Back to profile
+                    </a>
+                </div>
+
+                <a href="{{ url_for('book') }}"
+                   class="btn btn-sm btn-outline-secondary"
+                   title="Book with the studio instead">
+                    <i class="bi bi-x-lg"></i>
+                </a>
+            </div>
+            {% endif %}
+            <!-- ═══ END SELECTED PHOTOGRAPHER BANNER ═══ -->
+
             <!-- The form posts to the /book route in Flask -->
             <form method="POST" action="{{ url_for('book') }}">
+
+                <!-- Carries the chosen photographer through with the booking.
+                     Empty when booking directly with the studio. The server
+                     re-checks this ID before trusting it. -->
+                <input type="hidden" name="photographer_id"
+                       value="{{ preselected_photographer.id if preselected_photographer else '' }}">
 
                 <!-- Customer Name -->
                 <div class="mb-3">
@@ -56,6 +115,119 @@
                         <option value="Funerals">Funeral Coverage</option>
                     </select>
                 </div>
+
+                <!-- ═══════════════════════════════════════════════════════════════
+                     AI PHOTOGRAPHY ASSISTANT PANEL
+                     Appears automatically when a service is selected.
+                     Hidden by default — JavaScript shows/updates it on change.
+                     ═══════════════════════════════════════════════════════════════ -->
+                <div id="aiPanel" style="display:none;" class="mb-4">
+                    <div style="background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+                                border-radius: 12px; padding: 20px 24px; color: white;">
+
+                        <!-- Panel header -->
+                        <div class="d-flex align-items-center mb-3">
+                            <span style="font-size:1.5rem; margin-right:10px;">🤖</span>
+                            <div>
+                                <p style="margin:0; font-weight:700; font-size:1rem; color:#c5cae9;">
+                                    AI Photography Assistant
+                                </p>
+                                <p style="margin:0; font-size:0.8rem; color:#9fa8c7;">
+                                    Based on your selected service, here are personalised recommendations
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="row g-3">
+
+                            <!-- Recommended Poses -->
+                            <div class="col-md-4">
+                                <div style="background:rgba(255,255,255,0.08); border-radius:8px; padding:14px;">
+                                    <p style="margin:0 0 8px 0; font-weight:700; font-size:0.88rem; color:#c5cae9;">
+                                        📸 Recommended Poses
+                                    </p>
+                                    <ul id="aiPoses" style="margin:0; padding-left:16px; font-size:0.84rem;
+                                                            color:#d0d8f0; line-height:1.8;"></ul>
+                                </div>
+                            </div>
+
+                            <!-- Outfit Tips -->
+                            <div class="col-md-4">
+                                <div style="background:rgba(255,255,255,0.08); border-radius:8px; padding:14px;">
+                                    <p style="margin:0 0 8px 0; font-weight:700; font-size:0.88rem; color:#c5cae9;">
+                                        👔 Outfit Tips
+                                    </p>
+                                    <ul id="aiOutfits" style="margin:0; padding-left:16px; font-size:0.84rem;
+                                                              color:#d0d8f0; line-height:1.8;"></ul>
+                                </div>
+                            </div>
+
+                            <!-- Colour & Theme Ideas -->
+                            <div class="col-md-4">
+                                <div style="background:rgba(255,255,255,0.08); border-radius:8px; padding:14px;">
+                                    <p style="margin:0 0 8px 0; font-weight:700; font-size:0.88rem; color:#c5cae9;">
+                                        🎨 Colour & Theme Ideas
+                                    </p>
+                                    <ul id="aiThemes" style="margin:0; padding-left:16px; font-size:0.84rem;
+                                                             color:#d0d8f0; line-height:1.8;"></ul>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- Pro tip row -->
+                        <div style="background:rgba(40,167,69,0.15); border-left:3px solid #28a745;
+                                    border-radius:6px; padding:10px 14px; margin-top:14px;">
+                            <p style="margin:0; font-size:0.82rem; color:#6fcf8a;">
+                                <strong>💡 Pro tip:</strong>
+                                <span id="aiProTip"></span>
+                            </p>
+                        </div>
+
+                    </div>
+                </div>
+                <!-- ═══════════════════════════════════════════════════════════════
+                     END AI PHOTOGRAPHY ASSISTANT PANEL
+                     ═══════════════════════════════════════════════════════════════ -->
+
+                <!-- ═══════════════════════════════════════════════════════
+                     SHOOT TYPE — drives how availability is calculated
+                     ═══════════════════════════════════════════════════════ -->
+                <div class="mb-3">
+                    <label class="form-label">Where will the shoot take place?</label>
+                    <div class="row g-2">
+
+                        <div class="col-6">
+                            <input type="radio" class="btn-check" name="shoot_type"
+                                   id="shootStudio" value="studio" checked>
+                            <label class="btn btn-outline-dark w-100 py-3 text-start"
+                                   for="shootStudio">
+                                <i class="bi bi-house-door me-2" style="font-size:1.2rem;"></i>
+                                <strong>In the Studio</strong><br>
+                                <small class="text-muted">Indoor session at our studio</small>
+                            </label>
+                        </div>
+
+                        <div class="col-6">
+                            <input type="radio" class="btn-check" name="shoot_type"
+                                   id="shootOutdoor" value="outdoor">
+                            <label class="btn btn-outline-dark w-100 py-3 text-start"
+                                   for="shootOutdoor">
+                                <i class="bi bi-tree me-2" style="font-size:1.2rem;"></i>
+                                <strong>Outdoor / On Location</strong><br>
+                                <small class="text-muted">We come to your location</small>
+                            </label>
+                        </div>
+
+                    </div>
+                    <div class="form-text mt-2">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Studio sessions use our single studio room, so fewer slots are
+                        available. Outdoor sessions depend only on your photographer's
+                        availability.
+                    </div>
+                </div>
+                <!-- ═══ END SHOOT TYPE ═══ -->
 
                 <!-- Date and Time (side by side) -->
                 <div class="row">
@@ -106,7 +278,7 @@
     const timeSelect = document.getElementById('time');
     const hint = document.getElementById('availabilityHint');
 
-    // 1) Prevent selecting past dates (this was here before).
+    // 1) Prevent selecting past dates.
     const today = new Date().toISOString().split('T')[0];
     dateInput.setAttribute('min', today);
 
@@ -117,15 +289,24 @@
         originalLabels[opt.value] = opt.textContent;
     }
 
-    // 3) Whenever the date changes, ask the server which times are taken.
+    // 3) Availability now depends on the date, the shoot type AND the chosen
+    //    photographer, so we re-check whenever any of them changes.
     dateInput.addEventListener('change', updateAvailability);
+    document.querySelectorAll('input[name="shoot_type"]').forEach(function (radio) {
+        radio.addEventListener('change', updateAvailability);
+    });
 
     async function updateAvailability() {
         const chosenDate = dateInput.value;
+        // Which shoot type is selected, and which photographer (if any)?
+        const shootTypeEl = document.querySelector('input[name="shoot_type"]:checked');
+        const shootType   = shootTypeEl ? shootTypeEl.value : 'studio';
+        const photogEl    = document.querySelector('input[name="photographer_id"]');
+        const photogId    = photogEl ? photogEl.value : '';
 
         // Reset every real slot back to normal (enabled + original label).
         for (const opt of timeSelect.options) {
-            if (opt.value === "") continue;   // skip the "-- Select time --" placeholder
+            if (opt.value === "") continue;
             opt.disabled = false;
             opt.textContent = originalLabels[opt.value];
         }
@@ -135,37 +316,312 @@
         if (!chosenDate) return;
 
         try {
-            // Ask our backend information desk for the booked times on this date.
-            const res = await fetch(`/api/booked-times?date=${chosenDate}`);
+            const res = await fetch(
+                `/api/booked-times?date=${chosenDate}`
+                + `&shoot_type=${shootType}`
+                + `&photographer_id=${photogId}`);
             const data = await res.json();
             const booked = data.booked || [];
 
-            // Grey out (disable) any slot that is already taken.
             for (const opt of timeSelect.options) {
                 if (opt.value !== "" && booked.includes(opt.value)) {
                     opt.disabled = true;
                     opt.textContent = originalLabels[opt.value] + " (Booked)";
-                    // If the customer had picked a slot that is now booked, clear it.
                     if (timeSelect.value === opt.value) {
                         timeSelect.value = "";
                     }
                 }
             }
 
-            // Friendly hint under the dropdown.
+            const label = (shootType === 'studio') ? 'studio' : 'outdoor';
             if (booked.length === 0) {
-                hint.textContent = "All time slots are available on this date.";
+                hint.textContent = "All time slots are available for this " + label + " session.";
                 hint.className = "form-text mt-1 text-success";
             } else {
-                hint.textContent = booked.length + " slot(s) already booked on this date are greyed out.";
+                hint.textContent = booked.length + " slot(s) unavailable for this "
+                                 + label + " session are greyed out.";
                 hint.className = "form-text mt-1 text-warning";
             }
         } catch (err) {
-            // If the check fails (e.g. no connection), we simply leave all slots
-            // enabled. The server-side double-booking check is still the real guard.
             console.error('Availability check failed:', err);
         }
     }
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     AI PHOTOGRAPHY ASSISTANT — JavaScript
+     All recommendation data lives here as a JS object.
+     When the customer picks a service, the panel fills and slides in.
+     No server call needed — everything is instant, client-side only.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script>
+    // ── Recommendation data for all 9 services ────────────────────────────
+    const aiRecommendations = {
+
+        "Portrait Session": {
+            poses: [
+                "Natural relaxed seated pose",
+                "Standing with slight body angle",
+                "Close-up face and shoulder shot",
+                "Candid laugh or smile capture",
+                "Leaning against a wall or chair"
+            ],
+            outfits: [
+                "Solid colours work best — avoid busy patterns",
+                "Navy, grey, or cream are timeless choices",
+                "Avoid overly casual clothes like hoodies",
+                "Bring a second outfit for variety"
+            ],
+            themes: [
+                "Clean studio background (white or grey)",
+                "Warm neutral tones for a professional feel",
+                "Soft natural lighting for skin tones",
+                "Minimalist backgrounds keep focus on you"
+            ],
+            tip: "Arrive rested and well-hydrated — it genuinely shows in portrait photos."
+        },
+
+        "Wedding Photography": {
+            poses: [
+                "Walking hand-in-hand down the aisle",
+                "Forehead-to-forehead romantic close-up",
+                "Ring close-up with intertwined hands",
+                "First dance captured mid-twirl",
+                "Looking into each other's eyes"
+            ],
+            outfits: [
+                "Coordinate accessories with your partner",
+                "Bring a second outfit for after-ceremony shots",
+                "Keep makeup touch-up items close by",
+                "Steam or iron outfits the night before"
+            ],
+            themes: [
+                "Golden hour shots for warm romantic light",
+                "White and champagne palettes for elegance",
+                "Floral and nature backdrops add softness",
+                "Candlelight or fairy lights for evening shots"
+            ],
+            tip: "Plan a 15-minute buffer between ceremony and portraits — rushing shows in photos."
+        },
+
+        "Corporate Headshots": {
+            poses: [
+                "Direct confident gaze at camera",
+                "Slight forward lean to show engagement",
+                "Relaxed shoulder pose — no stiffness",
+                "Arms crossed for an authoritative look",
+                "Standing next to a desk or workspace"
+            ],
+            outfits: [
+                "Wear your standard professional work attire",
+                "Navy, charcoal, or white shirts photograph cleanly",
+                "Avoid logos, patterns, or very bright colours",
+                "Iron everything — wrinkles are very visible"
+            ],
+            themes: [
+                "Plain grey or white studio backdrop",
+                "Office or professional environment setting",
+                "Shallow depth of field keeps focus on you",
+                "Clean, bright, and professional lighting"
+            ],
+            tip: "Bring your LinkedIn profile to mind — your headshot should match the version of you colleagues expect to meet."
+        },
+
+        "Birthday & Anniversaries": {
+            poses: [
+                "Blowing out candles on the cake",
+                "Laughing candid group shot",
+                "Close-up of rings or meaningful jewellery",
+                "Couple or family portrait with balloons",
+                "Holding milestone year number props"
+            ],
+            outfits: [
+                "Match or coordinate colours with the theme",
+                "Bright celebratory colours add energy",
+                "Avoid all-black unless it fits the theme",
+                "Bring a special outfit for the cake-cutting shot"
+            ],
+            themes: [
+                "Bold confetti or balloon-filled backdrops",
+                "Gold and white for anniversary elegance",
+                "Bright party colours for birthday sessions",
+                "Personalised props like number balloons"
+            ],
+            tip: "Prepare a short list of must-have shots in advance so no key moments are missed."
+        },
+
+        "Product Photography": {
+            poses: [
+                "Flat lay — product neatly arranged from above",
+                "45-degree angle to show depth and detail",
+                "Close-up macro shot for texture details",
+                "Lifestyle shot — product in real-life use",
+                "Multiple products arranged as a collection"
+            ],
+            outfits: [
+                "This session focuses on products, not people",
+                "If a model is involved, wear neutral tones",
+                "Avoid clothing that competes with the product",
+                "Clean, simple styling keeps product central"
+            ],
+            themes: [
+                "White or light grey seamless backgrounds",
+                "Wooden or marble surfaces for lifestyle feel",
+                "Brand colours as accent background elements",
+                "Natural window light for organic product feel"
+            ],
+            tip: "Clean and polish every product surface before the session — cameras catch every fingerprint and smudge."
+        },
+
+        "Graduation Photos": {
+            poses: [
+                "Classic cap toss in the air",
+                "Holding the certificate or degree scroll",
+                "Walking across the grounds in full regalia",
+                "Group shot with fellow graduates",
+                "Thoughtful solo portrait looking into the distance"
+            ],
+            outfits: [
+                "Wear neutral tones under your graduation gown",
+                "Bring polished, clean shoes — they often show",
+                "Ensure your gown is wrinkle-free and pressed",
+                "Keep your cap secure with bobby pins"
+            ],
+            themes: [
+                "University buildings or archways as backdrop",
+                "Green lawn settings for classic graduate look",
+                "Indoor studio portrait for a formal alternative",
+                "Scroll, cap, and gown as natural props"
+            ],
+            tip: "Schedule your session early in the day — outdoor light is softer and you will feel fresher than at midday."
+        },
+
+        "Events & Celebrations": {
+            poses: [
+                "Wide group shots that capture the full crowd",
+                "Candid crowd reaction moments",
+                "Key speaker or performer close-ups",
+                "Award presentations and handshake moments",
+                "Behind-the-scenes preparation shots"
+            ],
+            outfits: [
+                "Smart casual or formal depending on the event",
+                "Coordinate with the event dress code",
+                "Avoid colours that blend into the backdrop",
+                "Comfortable shoes — event sessions involve a lot of movement"
+            ],
+            themes: [
+                "Match the event's colour scheme and branding",
+                "Stage and podium shots for formal events",
+                "Warm ambient lighting for evening celebrations",
+                "Branded backdrops for corporate events"
+            ],
+            tip: "Share a schedule or run-of-show with the photographer in advance so key moments are never missed."
+        },
+
+        "Family Milestones": {
+            poses: [
+                "Classic family portrait — everyone looking at camera",
+                "Candid walking-together outdoor shot",
+                "Parents lifting or hugging children",
+                "Generational shot with grandparents included",
+                "Each family member individual portrait then together"
+            ],
+            outfits: [
+                "Coordinate colours — not identical outfits",
+                "Choose two or three complementary colours",
+                "Avoid clashing patterns across different family members",
+                "Comfortable clothing helps children relax naturally"
+            ],
+            themes: [
+                "Outdoor parks or gardens for natural feel",
+                "Home setting for a personal and warm vibe",
+                "Neutral studio backdrop for timeless look",
+                "Seasonal decorations if celebrating a milestone"
+            ],
+            tip: "Schedule family sessions earlier in the day when children are most energetic and cooperative."
+        },
+
+        "Funerals": {
+            poses: [
+                "Respectful group family portrait",
+                "Close-up of floral tributes and arrangements",
+                "Candid quiet moments of remembrance",
+                "Procession and ceremony wide shots",
+                "Individual tributes and memorial displays"
+            ],
+            outfits: [
+                "Traditional or formal black or dark attire",
+                "Respectful and modest clothing throughout",
+                "Comfortable shoes for outdoor procession coverage",
+                "Coordinate if the family has a specific colour request"
+            ],
+            themes: [
+                "Soft, respectful and dignified tones",
+                "Natural outdoor light for gentle and warm coverage",
+                "Focus on togetherness and tribute moments",
+                "Flowers, candles, and memorial objects as gentle details"
+            ],
+            tip: "Discuss sensitive moments with the family in advance so the photographer knows which moments require discretion."
+        }
+    };
+
+    // ── Panel elements ────────────────────────────────────────────────────
+    const serviceSelect  = document.getElementById('service');
+    const aiPanel        = document.getElementById('aiPanel');
+    const aiPosesList    = document.getElementById('aiPoses');
+    const aiOutfitsList  = document.getElementById('aiOutfits');
+    const aiThemesList   = document.getElementById('aiThemes');
+    const aiProTipEl     = document.getElementById('aiProTip');
+
+    // ── Helper: fill a <ul> element with an array of strings ─────────────
+    function fillList(ulElement, items) {
+        ulElement.innerHTML = '';
+        items.forEach(function(item) {
+            const li = document.createElement('li');
+            li.textContent = item;
+            ulElement.appendChild(li);
+        });
+    }
+
+    // ── Main function: show the panel when a service is chosen ───────────
+    function updateAiPanel() {
+        const selectedService = serviceSelect.value;
+
+        // If placeholder selected, hide the panel
+        if (!selectedService || !aiRecommendations[selectedService]) {
+            aiPanel.style.display = 'none';
+            return;
+        }
+
+        const data = aiRecommendations[selectedService];
+
+        // Fill all three lists
+        fillList(aiPosesList,   data.poses);
+        fillList(aiOutfitsList, data.outfits);
+        fillList(aiThemesList,  data.themes);
+
+        // Fill the pro tip
+        aiProTipEl.textContent = ' ' + data.tip;
+
+        // Show the panel with a smooth fade-in
+        aiPanel.style.display = 'block';
+        aiPanel.style.opacity = '0';
+        aiPanel.style.transition = 'opacity 0.4s ease';
+        // Use requestAnimationFrame to ensure the transition triggers
+        requestAnimationFrame(function() {
+            requestAnimationFrame(function() {
+                aiPanel.style.opacity = '1';
+            });
+        });
+    }
+
+    // ── Listen for service dropdown changes ───────────────────────────────
+    serviceSelect.addEventListener('change', updateAiPanel);
+
+</script>
+<!-- ═══════════════════════════════════════════════════════════════════════
+     END AI PHOTOGRAPHY ASSISTANT
+     ═══════════════════════════════════════════════════════════════════════ -->
 
 {% endblock %}

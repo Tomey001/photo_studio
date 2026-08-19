@@ -1,0 +1,342 @@
+{% extends 'base.html' %}
+
+{% block title %}Join Our Photographer Network — LensCraft Studio{% endblock %}
+
+{% block content %}
+
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+
+        <!-- Page header -->
+        <div class="text-center mb-5">
+            <i class="bi bi-camera2" style="font-size:3rem; color:#0f3460;"></i>
+            <h1 class="fw-bold mt-2">Join Our Photographer Network</h1>
+            <p class="text-muted lead">
+                Connect with clients across Ghana through the LensCraft platform.
+            </p>
+        </div>
+
+        <!-- Benefits section -->
+        <div class="row g-4 mb-5">
+            <div class="col-md-4 text-center">
+                <div class="p-4 rounded-3" style="background:#f8f9fa;">
+                    <i class="bi bi-people-fill" style="font-size:2rem; color:#0f3460;"></i>
+                    <h5 class="fw-bold mt-3">Reach More Clients</h5>
+                    <p class="text-muted small">
+                        Get discovered by customers actively looking for photographers.
+                    </p>
+                </div>
+            </div>
+            <div class="col-md-4 text-center">
+                <div class="p-4 rounded-3" style="background:#f8f9fa;">
+                    <i class="bi bi-stars" style="font-size:2rem; color:#0f3460;"></i>
+                    <h5 class="fw-bold mt-3">AI-Powered Matching</h5>
+                    <p class="text-muted small">
+                        Our AI matches your profile to customers based on their needs.
+                    </p>
+                </div>
+            </div>
+            <div class="col-md-4 text-center">
+                <div class="p-4 rounded-3" style="background:#f8f9fa;">
+                    <i class="bi bi-images" style="font-size:2rem; color:#0f3460;"></i>
+                    <h5 class="fw-bold mt-3">Showcase Your Work</h5>
+                    <p class="text-muted small">
+                        Upload your portfolio and let your work speak for itself.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- How to join section -->
+        <div class="mb-5 p-4 rounded-3"
+             style="background:linear-gradient(135deg,#0f3460 0%,#16213e 100%); color:white;">
+            <h4 class="fw-bold mb-3">
+                <i class="bi bi-info-circle me-2"></i>How to Join
+            </h4>
+            <ol style="color:#c5cae9; line-height:2; margin-bottom:0; padding-left:20px;">
+                <li>Fill in the enquiry form below with your details</li>
+                <li>Our team will review your submission and contact you</li>
+                <li>We create your profile and upload your portfolio</li>
+                <li>Your profile goes live and clients can find you</li>
+            </ol>
+        </div>
+
+        <!-- Studio contact info -->
+        <div class="card border-0 shadow-sm mb-5">
+            <div class="card-body p-4">
+                <h5 class="fw-bold mb-3">
+                    <i class="bi bi-telephone me-2" style="color:#0f3460;"></i>
+                    Contact Us Directly
+                </h5>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <p class="mb-2">
+                            <i class="bi bi-telephone-fill me-2 text-muted"></i>
+                            <strong>Phone:</strong>
+                            <a href="tel:{{ studio_phone }}" class="text-decoration-none text-dark ms-1">
+                                {{ studio_phone }}
+                            </a>
+                        </p>
+                        <p class="mb-2">
+                            <i class="bi bi-whatsapp me-2 text-success"></i>
+                            <strong>WhatsApp:</strong>
+                            {# wa.me requires the full international number with no
+                               leading zero, plus sign, or spaces. A Ghana number
+                               entered as 0540750090 becomes 233540750090. #}
+                            {% set wa_digits = studio_whatsapp | replace('+','') | replace(' ','') | replace('-','') %}
+                            {% if wa_digits.startswith('0') %}
+                                {% set wa_digits = '233' ~ wa_digits[1:] %}
+                            {% endif %}
+                            <a href="https://wa.me/{{ wa_digits }}"
+                               target="_blank"
+                               class="text-decoration-none text-dark ms-1">
+                                {{ studio_whatsapp }}
+                            </a>
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <p class="mb-2">
+                            <i class="bi bi-envelope-fill me-2 text-muted"></i>
+                            <strong>Email:</strong>
+                            <a href="mailto:{{ studio_email }}"
+                               class="text-decoration-none text-dark ms-1">
+                                {{ studio_email }}
+                            </a>
+                        </p>
+                        <p class="mb-2">
+                            <i class="bi bi-geo-alt-fill me-2 text-muted"></i>
+                            <strong>Location:</strong>
+                            <span class="ms-1">{{ studio_address }}</span>
+                        </p>
+                        <p class="mb-0">
+                            <i class="bi bi-clock-fill me-2 text-muted"></i>
+                            <strong>Hours:</strong>
+                            <span class="ms-1">{{ studio_hours }}</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Enquiry form -->
+        <div class="card border-0 shadow-sm mb-5">
+            <div class="card-body p-4">
+                <h5 class="fw-bold mb-4">
+                    <i class="bi bi-send me-2" style="color:#0f3460;"></i>
+                    Send Us an Enquiry
+                </h5>
+
+                <form method="POST" enctype="multipart/form-data" action="{{ url_for('join_network') }}">
+
+                    <div class="row g-3">
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Full Name <span class="text-danger">*</span></label>
+                            <input type="text" name="name" class="form-control"
+                                   placeholder="Your full name" required>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Phone Number <span class="text-danger">*</span></label>
+                            <input type="tel" name="phone" class="form-control"
+                                   placeholder="e.g. 0244123456" required>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Email Address <span class="text-danger">*</span></label>
+                            <input type="email" name="email" class="form-control"
+                                   placeholder="your@email.com" required>
+                        </div>
+
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">
+                                Town / City <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" name="location" class="form-control"
+                                   placeholder="e.g. Kasoa" required>
+                        </div>
+
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">
+                                Region <span class="text-danger">*</span>
+                            </label>
+                            <select name="base_region" class="form-select" required>
+                                <option value="" disabled selected>-- Select --</option>
+                                {% for r in all_regions %}
+                                <option value="{{ r }}">{{ r }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">Where you are based.</div>
+                        </div>
+
+                        <!-- Services: fixed list so the values match exactly what
+                             customers book, which makes search and AI matching work. -->
+                        <div class="col-12">
+                            <label class="form-label fw-bold">
+                                Services You Offer <span class="text-danger">*</span>
+                            </label>
+                            <div class="p-3 rounded" style="background:#f8f9fa;">
+                                <div class="form-check mb-2 pb-2 border-bottom">
+                                    <input class="form-check-input" type="checkbox" id="allServices">
+                                    <label class="form-check-label fw-bold" for="allServices">
+                                        Select all services
+                                    </label>
+                                </div>
+                                <div class="row g-2">
+                                    {% for service in all_services %}
+                                    <div class="col-md-4 col-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input service-check"
+                                                   type="checkbox" name="services"
+                                                   value="{{ service }}"
+                                                   id="svc{{ loop.index }}">
+                                            <label class="form-check-label" for="svc{{ loop.index }}"
+                                                   style="font-size:0.88rem;">
+                                                {{ service }}
+                                            </label>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div class="form-text">Tick every service you can provide.</div>
+                        </div>
+
+                        <!-- Photography styles: also a fixed list. -->
+                        <div class="col-12">
+                            <label class="form-label fw-bold">
+                                Photography Style <span class="text-danger">*</span>
+                            </label>
+                            <div class="p-3 rounded" style="background:#f8f9fa;">
+                                <div class="row g-2">
+                                    {% for style in all_styles %}
+                                    <div class="col-md-4 col-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input"
+                                                   type="checkbox" name="style"
+                                                   value="{{ style }}"
+                                                   id="sty{{ loop.index }}">
+                                            <label class="form-check-label" for="sty{{ loop.index }}"
+                                                   style="font-size:0.88rem;">
+                                                {{ style }}
+                                            </label>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div class="form-text">Tick the styles that describe your work.</div>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label fw-bold">Tell Us About Yourself</label>
+                            <textarea name="message" class="form-control" rows="4"
+                                      placeholder="Share your experience, portfolio link, or anything else you'd like us to know..."></textarea>
+                        </div>
+
+                        <!-- ═══ Ghana Card verification ═══ -->
+                        <div class="col-12">
+                            <hr class="my-2">
+                            <h6 class="fw-bold mb-1">
+                                <i class="bi bi-person-vcard me-2" style="color:#0f3460;"></i>
+                                Identity Verification
+                            </h6>
+                            <p class="text-muted mb-3" style="font-size:0.86rem;">
+                                We verify every photographer on the network so customers
+                                can book with confidence, and so any dispute can be
+                                followed up properly.
+                            </p>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">
+                                Ghana Card Number <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" name="ghana_card_number" class="form-control"
+                                   placeholder="GHA-XXXXXXXXX-X" required>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">
+                                Ghana Card Photo
+                                <span class="text-muted fw-normal">(optional)</span>
+                            </label>
+                            <input type="file" name="ghana_card_image" class="form-control"
+                                   accept=".jpg,.jpeg,.png,.webp">
+                            <div class="form-text">JPG, PNG or WEBP. Max 5 MB.</div>
+                        </div>
+
+                        <div class="col-12">
+                            <div class="p-3 rounded" style="background:#f8f9fa;">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox"
+                                           name="consent" id="consent" required>
+                                    <label class="form-check-label" for="consent"
+                                           style="font-size:0.88rem;">
+                                        <strong>I consent</strong> to LensCraft Studio storing my
+                                        Ghana Card details for identity verification. I understand
+                                        these details are visible only to the studio administrator,
+                                        are never shown on my public profile, and are used solely
+                                        to verify my identity and resolve any disputes.
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- ═══ End Ghana Card verification ═══ -->
+
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-dark px-5 py-2 fw-bold">
+                                <i class="bi bi-send-fill me-2"></i>Submit Enquiry
+                            </button>
+                        </div>
+
+                    </div>
+
+                </form>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // "Select all services" ticks or clears every service box.
+    const allServices  = document.getElementById('allServices');
+    const serviceBoxes = document.querySelectorAll('.service-check');
+
+    if (allServices) {
+        allServices.addEventListener('change', function () {
+            serviceBoxes.forEach(function (box) { box.checked = allServices.checked; });
+        });
+        // If they untick one by hand, "select all" should stop looking ticked.
+        serviceBoxes.forEach(function (box) {
+            box.addEventListener('change', function () {
+                allServices.checked =
+                    Array.from(serviceBoxes).every(function (b) { return b.checked; });
+            });
+        });
+    }
+
+    // Checkbox groups have no HTML "required", so we check before submitting.
+    // The server checks too -- this is only to save them a page reload.
+    const enquiryForm = document.querySelector('form[enctype="multipart/form-data"]');
+    if (enquiryForm) {
+        enquiryForm.addEventListener('submit', function (e) {
+            const anyService = document.querySelectorAll('input[name="services"]:checked').length;
+            const anyStyle   = document.querySelectorAll('input[name="style"]:checked').length;
+            if (!anyService) {
+                e.preventDefault();
+                alert('Please tick at least one service you offer.');
+                return;
+            }
+            if (!anyStyle) {
+                e.preventDefault();
+                alert('Please tick at least one photography style.');
+            }
+        });
+    }
+</script>
+{% endblock %}

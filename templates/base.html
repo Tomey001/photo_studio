@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Photo Studio{% endblock %}</title>
+    <title>{% block title %}LensCraft Studio{% endblock %}</title>
 
-    <!-- Bootstrap CSS — gives us professional styling for free -->
+    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 
-    <!-- Bootstrap Icons — for small icons like calendar, camera, etc. -->
+    <!-- Bootstrap Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
 
-    <!-- Our custom CSS file -->
+    <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
@@ -19,34 +19,54 @@
     <!-- ======= NAVBAR ======= -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
-            <!-- Studio name / logo -->
             <a class="navbar-brand fw-bold" href="{{ url_for('index') }}">
                 <i class="bi bi-camera-fill me-2"></i>LensCraft Studio
             </a>
 
-            <!-- Mobile menu toggle button -->
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <button class="navbar-toggler" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
 
-            <!-- Nav links -->
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
+
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('index') }}">
+                        <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}"
+                           href="{{ url_for('index') }}">
                             <i class="bi bi-house me-1"></i>Home
                         </a>
                     </li>
+
+                    <!-- ── NEW: Find a Photographer ── -->
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('book') }}">
+                        <a class="nav-link {% if request.endpoint in ['photographers','photographer_profile','join_network'] %}active{% endif %}"
+                           href="{{ url_for('photographers') }}">
+                            <i class="bi bi-people me-1"></i>Find a Photographer
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'book' %}active{% endif %}"
+                           href="{{ url_for('book') }}">
                             <i class="bi bi-calendar-plus me-1"></i>Book Appointment
                         </a>
                     </li>
+
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('admin_login') }}">
+                        <a class="nav-link {% if request.endpoint in ['photographer_login','photographer_dashboard'] %}active{% endif %}"
+                           href="{% if session.get('photographer_logged_in') %}{{ url_for('photographer_dashboard') }}{% else %}{{ url_for('photographer_login') }}{% endif %}">
+                            <i class="bi bi-camera me-1"></i>Photographer Portal
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'admin_login' %}active{% endif %}"
+                           href="{{ url_for('admin_login') }}">
                             <i class="bi bi-person-lock me-1"></i>Admin
                         </a>
                     </li>
+
                 </ul>
             </div>
         </div>
@@ -54,7 +74,6 @@
     <!-- ======= END NAVBAR ======= -->
 
     <!-- ======= FLASH MESSAGES ======= -->
-    <!-- These are pop-up notification messages (success, error, warning) -->
     <div class="container mt-3">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -70,7 +89,6 @@
     <!-- ======= END FLASH MESSAGES ======= -->
 
     <!-- ======= MAIN CONTENT ======= -->
-    <!-- Each page fills in this block with its own content -->
     <main class="container my-4">
         {% block content %}{% endblock %}
     </main>
@@ -85,7 +103,9 @@
     </footer>
     <!-- ======= END FOOTER ======= -->
 
-    <!-- Bootstrap JavaScript — needed for mobile menu and alerts -->
+    <!-- Bootstrap JavaScript -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    {% block scripts %}{% endblock %}
 </body>
 </html>

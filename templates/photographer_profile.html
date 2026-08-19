@@ -1,0 +1,403 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ photographer.name }} — LensCraft Studio{% endblock %}
+
+{% block content %}
+
+<!-- Back link -->
+<div class="mb-4">
+    <a href="{{ url_for('photographers') }}" class="text-muted text-decoration-none">
+        <i class="bi bi-arrow-left me-1"></i> Back to All Photographers
+    </a>
+</div>
+
+<!-- Profile header -->
+<div class="row g-4 mb-5">
+
+    <!-- Profile image -->
+    <div class="col-md-4 col-lg-3">
+        <div style="border-radius:16px; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.12);">
+            {% if photographer.profile_image %}
+            <img src="{{ url_for('static', filename='img/photographers/' ~ photographer.profile_image) }}"
+                 alt="{{ photographer.name }}"
+                 style="width:100%; aspect-ratio:1/1; object-fit:cover;">
+            {% else %}
+            <div class="d-flex align-items-center justify-content-center"
+                 style="aspect-ratio:1/1; background:linear-gradient(135deg,#0f3460,#16213e);">
+                <i class="bi bi-person-circle" style="font-size:6rem; color:#c5cae9;"></i>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Profile info -->
+    <div class="col-md-8 col-lg-9">
+        <h1 class="fw-bold mb-1">{{ photographer.name }}</h1>
+
+        {% if photographer.business_name and photographer.business_name != photographer.name %}
+        <p class="text-muted mb-2" style="font-size:1.1rem;">{{ photographer.business_name }}</p>
+        {% endif %}
+
+        <!-- Availability status, stated plainly before anything else -->
+        {% if photographer.is_available %}
+        <p class="mb-3">
+            <span class="badge bg-success px-3 py-2" style="font-size:0.85rem; border-radius:20px;">
+                <i class="bi bi-check-circle-fill me-1"></i>Available for bookings
+            </span>
+        </p>
+        {% else %}
+        <div class="alert alert-warning d-flex align-items-start mb-3" role="alert">
+            <i class="bi bi-pause-circle-fill me-2 mt-1"></i>
+            <div>
+                <strong>Not taking bookings right now.</strong>
+                {% if photographer.availability_note %}
+                <br><span style="font-size:0.9rem;">{{ photographer.availability_note }}</span>
+                {% endif %}
+                <br><span style="font-size:0.85rem;">
+                    You can still browse their work, or
+                    <a href="{{ url_for('photographers') }}" class="alert-link">find another photographer</a>.
+                </span>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Quick stats row -->
+        <div class="d-flex flex-wrap gap-3 mb-3">
+            {% if photographer.experience %}
+            <span class="badge bg-dark text-white px-3 py-2" style="border-radius:20px; font-size:0.85rem;">
+                <i class="bi bi-award me-1"></i>
+                {{ photographer.experience }} year{% if photographer.experience != 1 %}s{% endif %} experience
+            </span>
+            {% endif %}
+            {% if photographer.locations %}
+            <span class="badge bg-light text-dark px-3 py-2" style="border-radius:20px; font-size:0.85rem;">
+                <i class="bi bi-geo-alt me-1"></i>
+                {{ photographer.locations_list()|join(', ') }}
+            </span>
+            {% endif %}
+            {% if portfolio %}
+            <span class="badge bg-light text-dark px-3 py-2" style="border-radius:20px; font-size:0.85rem;">
+                <i class="bi bi-images me-1"></i>
+                {{ portfolio|length }} portfolio image{% if portfolio|length != 1 %}s{% endif %}
+            </span>
+            {% endif %}
+        </div>
+
+        <!-- Bio -->
+        {% if photographer.bio %}
+        <p style="line-height:1.8; color:#444; font-size:0.98rem;" class="mb-4">
+            {{ photographer.bio }}
+        </p>
+        {% endif %}
+
+        <!-- Services -->
+        {% if photographer.services %}
+        <div class="mb-3">
+            <p class="fw-bold text-muted small mb-2">SERVICES OFFERED</p>
+            {% for service in photographer.services_list() %}
+            <span class="badge me-1 mb-2"
+                  style="background:#e8f0fe; color:#0f3460;
+                         font-size:0.82rem; border-radius:20px; padding:6px 14px;">
+                <i class="bi bi-camera me-1"></i>{{ service }}
+            </span>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Styles -->
+        {% if photographer.styles %}
+        <div class="mb-4">
+            <p class="fw-bold text-muted small mb-2">PHOTOGRAPHY STYLES</p>
+            {% for style in photographer.styles_list() %}
+            <span class="badge me-1 mb-2"
+                  style="background:#f0f4ff; color:#555;
+                         font-size:0.82rem; border-radius:20px; padding:6px 14px;">
+                {{ style }}
+            </span>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Contact + Book buttons -->
+        <div class="d-flex flex-wrap gap-2">
+            {% if photographer.is_available %}
+            <a href="{{ url_for('book', photographer=photographer.id) }}"
+               class="btn btn-dark btn-lg px-5"
+               style="border-radius:8px;">
+                <i class="bi bi-calendar-plus me-2"></i>Book This Photographer
+            </a>
+            {% else %}
+            <button class="btn btn-secondary btn-lg px-5" disabled style="border-radius:8px;">
+                <i class="bi bi-slash-circle me-2"></i>Not Taking Bookings
+            </button>
+            {% endif %}
+            {% if photographer.phone %}
+            <a href="tel:{{ photographer.phone }}"
+               class="btn btn-outline-dark btn-lg px-4"
+               style="border-radius:8px;">
+                <i class="bi bi-telephone me-2"></i>Call
+            </a>
+            {% endif %}
+            {% if photographer.email %}
+            <a href="mailto:{{ photographer.email }}"
+               class="btn btn-outline-dark btn-lg px-4"
+               style="border-radius:8px;">
+                <i class="bi bi-envelope me-2"></i>Email
+            </a>
+            {% endif %}
+        </div>
+
+    </div>
+</div>
+
+<!-- Portfolio section -->
+{% if portfolio %}
+<div class="mb-5">
+    <h3 class="fw-bold mb-4">
+        <i class="bi bi-images me-2" style="color:#0f3460;"></i>
+        Portfolio
+    </h3>
+
+    <div class="row g-3">
+        {% for item in portfolio %}
+        <div class="col-6 col-md-4 col-lg-3">
+            <div class="portfolio-item"
+                 style="border-radius:10px; overflow:hidden;
+                        box-shadow:0 2px 10px rgba(0,0,0,0.1);
+                        cursor:pointer; transition:transform 0.2s ease;"
+                 onmouseover="this.style.transform='scale(1.03)'"
+                 onmouseout="this.style.transform='scale(1)'"
+                 data-full="{{ url_for('static', filename='img/portfolio/' ~ item.image) }}"
+                 data-caption="{{ item.title or '' }}">
+
+                <img src="{{ url_for('static', filename='img/portfolio/' ~ item.image) }}"
+                     alt="{{ item.title or photographer.name + ' portfolio' }}"
+                     style="width:100%; aspect-ratio:1/1; object-fit:cover;">
+
+                {% if item.title or item.category %}
+                <div style="padding:8px 10px; background:white;">
+                    {% if item.title %}
+                    <p style="margin:0; font-size:0.82rem; font-weight:600; color:#333;">{{ item.title }}</p>
+                    {% endif %}
+                    {% if item.category %}
+                    <p style="margin:0; font-size:0.75rem; color:#888;">{{ item.category }}</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- ===== CUSTOMER RATINGS ===== -->
+<div class="mb-5">
+    <h3 class="fw-bold mb-4">
+        <i class="bi bi-star-fill me-2" style="color:#ffc107;"></i>
+        Customer Ratings
+    </h3>
+
+    <div class="row g-4">
+
+        <!-- Existing ratings -->
+        <div class="col-lg-7">
+            {% if photographer.ratings %}
+            <p class="mb-4">
+                <span style="color:#ffc107;font-size:1.4rem;">
+                    {% for i in range(photographer.full_stars()) %}<i class="bi bi-star-fill"></i>{% endfor %}{% for i in range(5 - photographer.full_stars()) %}<i class="bi bi-star"></i>{% endfor %}
+                </span>
+                <span class="fw-bold ms-2" style="font-size:1.1rem;">
+                    {{ photographer.average_rating() }} out of 5
+                </span>
+                <span class="text-muted">
+                    — from {{ photographer.rating_count() }} rating{{ 's' if photographer.rating_count() != 1 else '' }}
+                </span>
+            </p>
+
+            {% for r in photographer.ratings|sort(attribute='created_at', reverse=true) %}
+            <div class="card border-0 shadow-sm mb-3">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <span style="color:#ffc107;">
+                                {% for i in range(r.rating) %}<i class="bi bi-star-fill"></i>{% endfor %}{% for i in range(5 - r.rating) %}<i class="bi bi-star"></i>{% endfor %}
+                            </span>
+                            <strong class="ms-2">{{ r.customer_name }}</strong>
+                        </div>
+                        <small class="text-muted">
+                            {{ r.created_at.strftime('%d %b %Y') if r.created_at else '' }}
+                        </small>
+                    </div>
+                    {% if r.comment %}
+                    <p class="mb-0 mt-2 text-muted">"{{ r.comment }}"</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+
+            {% else %}
+            <div class="text-center py-4 text-muted">
+                <i class="bi bi-star" style="font-size:2.5rem;"></i>
+                <p class="mt-2 mb-0">No ratings yet. Be the first to rate this photographer.</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Rating form -->
+        <div class="col-lg-5">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-3">Rate this photographer</h5>
+
+                    <form method="POST"
+                          action="{{ url_for('rate_photographer', photographer_id=photographer.id) }}"
+                          id="ratingForm">
+
+                        <!-- Star picker -->
+                        <div class="mb-3 text-center">
+                            <div id="starPicker" style="font-size:2.2rem;color:#ffc107;cursor:pointer;">
+                                <i class="bi bi-star" data-value="1"></i>
+                                <i class="bi bi-star" data-value="2"></i>
+                                <i class="bi bi-star" data-value="3"></i>
+                                <i class="bi bi-star" data-value="4"></i>
+                                <i class="bi bi-star" data-value="5"></i>
+                            </div>
+                            <input type="hidden" name="rating" id="ratingInput" value="">
+                            <div id="ratingText" class="form-text mt-1">Tap a star to rate</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Your Name</label>
+                            <input type="text" name="customer_name" class="form-control"
+                                   placeholder="e.g. Ama Serwaa" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">
+                                Comment <span class="text-muted fw-normal">(optional)</span>
+                            </label>
+                            <textarea name="comment" class="form-control" rows="3"
+                                      maxlength="500"
+                                      placeholder="How was your experience?"></textarea>
+                        </div>
+
+                        <button type="submit" class="btn btn-dark w-100">
+                            <i class="bi bi-send-fill me-2"></i>Submit Rating
+                        </button>
+                    </form>
+
+                    <p class="text-muted mt-3 mb-0" style="font-size:0.78rem;">
+                        <i class="bi bi-info-circle me-1"></i>
+                        One rating per person. Please be fair and honest.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+<!-- ===== END CUSTOMER RATINGS ===== -->
+
+<!-- Book CTA footer -->
+<div class="p-4 text-center rounded-3"
+     style="background:linear-gradient(135deg,#0f3460 0%,#16213e 100%); color:white;">
+    <h4 class="fw-bold">Ready to book {{ photographer.name }}?</h4>
+    <p style="color:#c5cae9; font-size:0.95rem;">
+        Fill in our simple booking form and we will confirm your appointment by email and WhatsApp.
+    </p>
+    {% if photographer.is_available %}
+    <a href="{{ url_for('book', photographer=photographer.id) }}"
+       class="btn btn-light fw-bold px-5">
+        <i class="bi bi-calendar-plus me-2"></i>Book an Appointment
+    </a>
+    {% else %}
+    <a href="{{ url_for('photographers') }}" class="btn btn-light fw-bold px-5">
+        <i class="bi bi-people me-2"></i>Find an Available Photographer
+    </a>
+    {% endif %}
+</div>
+
+<!-- Lightbox modal -->
+<div id="lightboxModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.92);
+     z-index:9999; align-items:center; justify-content:center; flex-direction:column;"
+     onclick="closeLightbox()">
+    <button onclick="closeLightbox()" style="position:absolute; top:20px; right:28px;
+             background:none; border:none; color:white; font-size:2rem; cursor:pointer;">
+        &times;
+    </button>
+    <img id="lightboxImg" src="" alt=""
+         style="max-width:90vw; max-height:80vh; border-radius:8px; object-fit:contain;">
+    <p id="lightboxCaption"
+       style="color:#ccc; font-size:0.9rem; margin-top:12px;"></p>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Read the image path and caption from data attributes.
+// Using data attributes (instead of inline onclick arguments) means a title
+// containing an apostrophe — e.g. "Ama's Wedding" — cannot break the script.
+document.querySelectorAll('.portfolio-item').forEach(function (item) {
+    item.addEventListener('click', function () {
+        openLightbox(this.dataset.full, this.dataset.caption || '');
+    });
+});
+
+// ── Star rating picker ──────────────────────────────────────────────
+const stars       = document.querySelectorAll('#starPicker i');
+const ratingInput = document.getElementById('ratingInput');
+const ratingText  = document.getElementById('ratingText');
+const labels      = {1:'Poor', 2:'Fair', 3:'Good', 4:'Very good', 5:'Excellent'};
+let currentRating = 0;
+
+function paint(upTo) {
+    stars.forEach(function (s) {
+        const v = parseInt(s.dataset.value);
+        s.className = (v <= upTo) ? 'bi bi-star-fill' : 'bi bi-star';
+    });
+}
+
+stars.forEach(function (star) {
+    const value = parseInt(star.dataset.value);
+    star.addEventListener('mouseenter', function () { paint(value); });
+    star.addEventListener('mouseleave', function () { paint(currentRating); });
+    star.addEventListener('click', function () {
+        currentRating = value;
+        ratingInput.value = value;
+        paint(value);
+        ratingText.textContent = labels[value];
+        ratingText.className = 'form-text mt-1 text-success';
+    });
+});
+
+// Block submission when no star was chosen.
+const ratingForm = document.getElementById('ratingForm');
+if (ratingForm) {
+    ratingForm.addEventListener('submit', function (e) {
+        if (!ratingInput.value) {
+            e.preventDefault();
+            ratingText.textContent = 'Please tap a star first.';
+            ratingText.className = 'form-text mt-1 text-danger';
+        }
+    });
+}
+
+function openLightbox(src, caption) {
+    document.getElementById('lightboxImg').src             = src;
+    document.getElementById('lightboxCaption').textContent = caption;
+    const modal = document.getElementById('lightboxModal');
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+function closeLightbox() {
+    document.getElementById('lightboxModal').style.display = 'none';
+    document.body.style.overflow = '';
+}
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeLightbox();
+});
+</script>
+{% endblock %}
