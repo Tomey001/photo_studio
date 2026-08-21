@@ -194,109 +194,141 @@
 
 <!-- ===== CUSTOMER RATINGS ===== -->
 <div class="mb-5">
-    <h3 class="fw-bold mb-4">
+
+    <h3 class="fw-bold mb-1">
         <i class="bi bi-star-fill me-2" style="color:#ffc107;"></i>
         Customer Ratings
     </h3>
+    <p class="text-muted mb-4" style="font-size:0.9rem;">
+        <i class="bi bi-patch-check-fill me-1" style="color:#198754;"></i>
+        Every rating here comes from a customer who booked and completed a
+        session with {{ photographer.name }}.
+    </p>
 
-    <div class="row g-4">
+    {% if photographer.verified_ratings() %}
+    <div class="row g-4 mb-4">
 
-        <!-- Existing ratings -->
+        <!-- ── Score summary ── -->
+        <div class="col-lg-5">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body p-4">
+
+                    <div class="text-center pb-3 mb-3 border-bottom">
+                        <div style="font-size:3.2rem; font-weight:700; line-height:1;
+                                    color:#0f3460;">
+                            {{ photographer.average_rating() }}
+                        </div>
+                        <div style="color:#ffc107; font-size:1.3rem; margin:6px 0;">
+                            {% for i in range(photographer.full_stars()) %}<i class="bi bi-star-fill"></i>{% endfor %}{% for i in range(5 - photographer.full_stars()) %}<i class="bi bi-star"></i>{% endfor %}
+                        </div>
+                        <p class="text-muted mb-2" style="font-size:0.9rem;">
+                            Based on {{ photographer.rating_count() }}
+                            completed session{{ 's' if photographer.rating_count() != 1 else '' }}
+                        </p>
+                        <span class="badge"
+                              style="background:#d1e7dd; color:#0a3622;
+                                     font-size:0.72rem; border-radius:20px; padding:4px 10px;">
+                            <i class="bi bi-patch-check-fill me-1"></i>All verified
+                        </span>
+                    </div>
+
+                    <!-- Distribution: shows whether 4.5 means consistently good
+                         work, or a mix of 5s and 1s. -->
+                    {% set total = photographer.rating_count() %}
+                    {% for star in [5, 4, 3, 2, 1] %}
+                        {% set count = photographer.verified_ratings() | selectattr('rating', 'equalto', star) | list | length %}
+                        {% set pct = ((count / total * 100) | round(0, 'floor')) | int if total else 0 %}
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span style="font-size:0.82rem; color:#666; width:34px;">
+                                {{ star }} <i class="bi bi-star-fill" style="color:#ffc107; font-size:0.7rem;"></i>
+                            </span>
+                            <div style="flex:1; height:8px; background:#eee;
+                                        border-radius:4px; overflow:hidden;">
+                                <div style="width:{{ pct }}%; height:100%;
+                                            background:#ffc107;"></div>
+                            </div>
+                            <span style="font-size:0.8rem; color:#888; width:24px;
+                                         text-align:right;">{{ count }}</span>
+                        </div>
+                    {% endfor %}
+
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Reviews ── -->
         <div class="col-lg-7">
-            {% if photographer.ratings %}
-            <p class="mb-4">
-                <span style="color:#ffc107;font-size:1.4rem;">
-                    {% for i in range(photographer.full_stars()) %}<i class="bi bi-star-fill"></i>{% endfor %}{% for i in range(5 - photographer.full_stars()) %}<i class="bi bi-star"></i>{% endfor %}
-                </span>
-                <span class="fw-bold ms-2" style="font-size:1.1rem;">
-                    {{ photographer.average_rating() }} out of 5
-                </span>
-                <span class="text-muted">
-                    — from {{ photographer.rating_count() }} rating{{ 's' if photographer.rating_count() != 1 else '' }}
-                </span>
-            </p>
-
-            {% for r in photographer.ratings|sort(attribute='created_at', reverse=true) %}
+            {% for r in photographer.verified_ratings()|sort(attribute='created_at', reverse=true) %}
             <div class="card border-0 shadow-sm mb-3">
                 <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div>
-                            <span style="color:#ffc107;">
-                                {% for i in range(r.rating) %}<i class="bi bi-star-fill"></i>{% endfor %}{% for i in range(5 - r.rating) %}<i class="bi bi-star"></i>{% endfor %}
-                            </span>
-                            <strong class="ms-2">{{ r.customer_name }}</strong>
+
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width:36px; height:36px; border-radius:50%;
+                                        background:#0f3460; color:#fff; flex-shrink:0;
+                                        display:flex; align-items:center;
+                                        justify-content:center; font-weight:700;
+                                        font-size:0.9rem;">
+                                {{ r.customer_name[:1] | upper }}
+                            </div>
+                            <div>
+                                <strong style="font-size:0.92rem;">{{ r.customer_name }}</strong>
+                                <i class="bi bi-patch-check-fill ms-1"
+                                   style="color:#198754; font-size:0.8rem;"
+                                   title="Verified - rated after a completed session"></i>
+                                <div style="color:#ffc107; font-size:0.82rem; line-height:1;">
+                                    {% for i in range(r.rating) %}<i class="bi bi-star-fill"></i>{% endfor %}{% for i in range(5 - r.rating) %}<i class="bi bi-star"></i>{% endfor %}
+                                </div>
+                            </div>
                         </div>
-                        <small class="text-muted">
+                        <small class="text-muted" style="font-size:0.76rem; white-space:nowrap;">
                             {{ r.created_at.strftime('%d %b %Y') if r.created_at else '' }}
                         </small>
                     </div>
+
                     {% if r.comment %}
-                    <p class="mb-0 mt-2 text-muted">"{{ r.comment }}"</p>
+                    <p class="mb-0 text-muted" style="font-size:0.9rem; line-height:1.6;">
+                        {{ r.comment }}
+                    </p>
+                    {% else %}
+                    <p class="mb-0 text-muted fst-italic" style="font-size:0.86rem;">
+                        Rated {{ r.rating }} out of 5 with no comment.
+                    </p>
                     {% endif %}
+
                 </div>
             </div>
             {% endfor %}
-
-            {% else %}
-            <div class="text-center py-4 text-muted">
-                <i class="bi bi-star" style="font-size:2.5rem;"></i>
-                <p class="mt-2 mb-0">No ratings yet. Be the first to rate this photographer.</p>
-            </div>
-            {% endif %}
-        </div>
-
-        <!-- Rating form -->
-        <div class="col-lg-5">
-            <div class="card border-0 shadow-sm">
-                <div class="card-body p-4">
-                    <h5 class="fw-bold mb-3">Rate this photographer</h5>
-
-                    <form method="POST"
-                          action="{{ url_for('rate_photographer', photographer_id=photographer.id) }}"
-                          id="ratingForm">
-
-                        <!-- Star picker -->
-                        <div class="mb-3 text-center">
-                            <div id="starPicker" style="font-size:2.2rem;color:#ffc107;cursor:pointer;">
-                                <i class="bi bi-star" data-value="1"></i>
-                                <i class="bi bi-star" data-value="2"></i>
-                                <i class="bi bi-star" data-value="3"></i>
-                                <i class="bi bi-star" data-value="4"></i>
-                                <i class="bi bi-star" data-value="5"></i>
-                            </div>
-                            <input type="hidden" name="rating" id="ratingInput" value="">
-                            <div id="ratingText" class="form-text mt-1">Tap a star to rate</div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label fw-bold">Your Name</label>
-                            <input type="text" name="customer_name" class="form-control"
-                                   placeholder="e.g. Ama Serwaa" required>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label fw-bold">
-                                Comment <span class="text-muted fw-normal">(optional)</span>
-                            </label>
-                            <textarea name="comment" class="form-control" rows="3"
-                                      maxlength="500"
-                                      placeholder="How was your experience?"></textarea>
-                        </div>
-
-                        <button type="submit" class="btn btn-dark w-100">
-                            <i class="bi bi-send-fill me-2"></i>Submit Rating
-                        </button>
-                    </form>
-
-                    <p class="text-muted mt-3 mb-0" style="font-size:0.78rem;">
-                        <i class="bi bi-info-circle me-1"></i>
-                        One rating per person. Please be fair and honest.
-                    </p>
-                </div>
-            </div>
         </div>
 
     </div>
+
+    {% else %}
+    <!-- No verified ratings yet. Explaining HOW ratings are earned is more
+         useful than simply saying there are none. -->
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-5 text-center">
+            <div style="width:64px; height:64px; border-radius:50%;
+                        background:#fff8e1; display:flex; margin:0 auto 14px;
+                        align-items:center; justify-content:center;">
+                <i class="bi bi-star" style="font-size:1.8rem; color:#ffc107;"></i>
+            </div>
+            <h5 class="fw-bold mb-2">No ratings yet</h5>
+            <p class="text-muted mb-3" style="font-size:0.92rem; max-width:460px; margin:0 auto;">
+                {{ photographer.name }} has not been rated yet. Ratings can only
+                be left by customers who have booked and completed a session,
+                which is why every rating on LensCraft is genuine.
+            </p>
+            {% if photographer.is_available %}
+            <a href="{{ url_for('book', photographer=photographer.id) }}"
+               class="btn btn-outline-dark">
+                <i class="bi bi-calendar-plus me-2"></i>Book and be the first to rate
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
 </div>
 <!-- ===== END CUSTOMER RATINGS ===== -->
 
@@ -345,45 +377,6 @@ document.querySelectorAll('.portfolio-item').forEach(function (item) {
         openLightbox(this.dataset.full, this.dataset.caption || '');
     });
 });
-
-// ── Star rating picker ──────────────────────────────────────────────
-const stars       = document.querySelectorAll('#starPicker i');
-const ratingInput = document.getElementById('ratingInput');
-const ratingText  = document.getElementById('ratingText');
-const labels      = {1:'Poor', 2:'Fair', 3:'Good', 4:'Very good', 5:'Excellent'};
-let currentRating = 0;
-
-function paint(upTo) {
-    stars.forEach(function (s) {
-        const v = parseInt(s.dataset.value);
-        s.className = (v <= upTo) ? 'bi bi-star-fill' : 'bi bi-star';
-    });
-}
-
-stars.forEach(function (star) {
-    const value = parseInt(star.dataset.value);
-    star.addEventListener('mouseenter', function () { paint(value); });
-    star.addEventListener('mouseleave', function () { paint(currentRating); });
-    star.addEventListener('click', function () {
-        currentRating = value;
-        ratingInput.value = value;
-        paint(value);
-        ratingText.textContent = labels[value];
-        ratingText.className = 'form-text mt-1 text-success';
-    });
-});
-
-// Block submission when no star was chosen.
-const ratingForm = document.getElementById('ratingForm');
-if (ratingForm) {
-    ratingForm.addEventListener('submit', function (e) {
-        if (!ratingInput.value) {
-            e.preventDefault();
-            ratingText.textContent = 'Please tap a star first.';
-            ratingText.className = 'form-text mt-1 text-danger';
-        }
-    });
-}
 
 function openLightbox(src, caption) {
     document.getElementById('lightboxImg').src             = src;

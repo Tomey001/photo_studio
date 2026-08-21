@@ -234,15 +234,31 @@ class Photographer(db.Model):
         """Portfolio images still visible -- excludes any the studio removed."""
         return [p for p in self.portfolio if not p.is_removed]
 
+    def verified_ratings(self):
+        """
+        Only ratings left through the private link emailed after a completed
+        session. These are the only ones that count towards the score, because
+        they are the only ones we can prove came from a real customer.
+
+        Any older ratings left on the removed open form are kept in the
+        database but excluded here, so the average means exactly one thing.
+        """
+        return [r for r in self.ratings if r.is_verified]
+
     def average_rating(self):
         """Average star rating rounded to 1 decimal place. 0 when unrated."""
-        if not self.ratings:
+        verified = self.verified_ratings()
+        if not verified:
             return 0
-        return round(sum(r.rating for r in self.ratings) / len(self.ratings), 1)
+        return round(sum(r.rating for r in verified) / len(verified), 1)
 
     def rating_count(self):
-        """How many customers have rated this photographer."""
-        return len(self.ratings)
+        """How many confirmed customers have rated this photographer."""
+        return len(self.verified_ratings())
+
+    def verified_count(self):
+        """Kept for templates -- every counted rating is verified now."""
+        return len(self.verified_ratings())
 
     def full_stars(self):
         """Whole number of filled stars to draw, 0–5."""
@@ -328,6 +344,15 @@ class PhotographerRating(db.Model):
     ip_address      = db.Column(db.String(45),  nullable=True)    # 45 chars fits IPv6
     created_at      = db.Column(db.DateTime,    default=datetime.utcnow)
 
+    # -- Verified ratings ---------------------------------------------------
+    # A rating left through the private link emailed after a COMPLETED session
+    # is VERIFIED: we know that customer really was photographed by this person.
+    # A rating typed into the public profile form is not. Showing the difference
+    # is what makes the overall score trustworthy.
+    appointment_id  = db.Column(db.Integer, db.ForeignKey("appointments.id"),
+                                nullable=True)
+    is_verified     = db.Column(db.Boolean, nullable=False, default=False)
+
 
 class PhotographerEnquiry(db.Model):
     """
@@ -399,6 +424,82 @@ GHANA_REGIONS = [
     "Bono East",
     "Ahafo",
 ]
+
+# Major Ghanaian towns mapped to their region. This lets the server work out
+# that "Koforidua" is in Eastern even when no photographer is based there --
+# which is exactly the case where the AI alone gets it wrong.
+GHANA_TOWN_REGIONS = {
+    # Greater Accra
+    "accra": "Greater Accra", "tema": "Greater Accra", "madina": "Greater Accra",
+    "adenta": "Greater Accra", "adentan": "Greater Accra", "ashaiman": "Greater Accra",
+    "pokuase": "Greater Accra", "amasaman": "Greater Accra", "dansoman": "Greater Accra",
+    "achimota": "Greater Accra", "spintex": "Greater Accra", "east legon": "Greater Accra",
+    "osu": "Greater Accra", "labadi": "Greater Accra", "teshie": "Greater Accra",
+    "nungua": "Greater Accra", "weija": "Greater Accra", "kaneshie": "Greater Accra",
+    # Ashanti
+    "kumasi": "Ashanti", "obuasi": "Ashanti", "ejisu": "Ashanti",
+    "konongo": "Ashanti", "mampong": "Ashanti", "bekwai": "Ashanti",
+    # Eastern
+    "koforidua": "Eastern", "nsawam": "Eastern", "nkawkaw": "Eastern",
+    "akosombo": "Eastern", "suhum": "Eastern", "aburi": "Eastern",
+    "somanya": "Eastern", "akim oda": "Eastern", "begoro": "Eastern",
+    # Central
+    "cape coast": "Central", "winneba": "Central", "kasoa": "Central",
+    "swedru": "Central", "elmina": "Central", "mankessim": "Central",
+    "dunkwa": "Central",
+    # Western / Western North
+    "takoradi": "Western", "sekondi": "Western", "tarkwa": "Western",
+    "axim": "Western", "sefwi wiawso": "Western North", "bibiani": "Western North",
+    # Volta / Oti
+    "ho": "Volta", "hohoe": "Volta", "keta": "Volta", "aflao": "Volta",
+    "sogakope": "Volta", "dambai": "Oti", "jasikan": "Oti", "kete krachi": "Oti",
+    # Northern belt
+    "tamale": "Northern", "yendi": "Northern", "savelugu": "Northern",
+    "nalerigu": "North East", "walewale": "North East", "gambaga": "North East",
+    "damongo": "Savannah", "bole": "Savannah", "salaga": "Savannah",
+    "bolgatanga": "Upper East", "bawku": "Upper East", "navrongo": "Upper East",
+    "wa": "Upper West", "lawra": "Upper West", "tumu": "Upper West",
+    # Bono belt
+    "sunyani": "Bono", "berekum": "Bono", "dormaa ahenkro": "Bono",
+    "techiman": "Bono East", "kintampo": "Bono East", "atebubu": "Bono East",
+    "goaso": "Ahafo", "bechem": "Ahafo", "hwidiem": "Ahafo",
+}
+
+
+def resolve_place(place):
+    """
+    Works out which region a place name belongs to.
+
+    Returns (town, region). Either may be None. Accepts a town ("Koforidua"),
+    a region ("Eastern"), or something with both ("Koforidua, Eastern").
+    """
+    if not place:
+        return None, None
+
+    text = place.strip().lower()
+
+    # A region named directly?
+    for region in GHANA_REGIONS:
+        if region.lower() == text:
+            return None, region
+
+    # A known town?
+    if text in GHANA_TOWN_REGIONS:
+        return text, GHANA_TOWN_REGIONS[text]
+
+    # A town mentioned inside a longer phrase, longest name first so
+    # "cape coast" wins over any shorter fragment.
+    for town in sorted(GHANA_TOWN_REGIONS, key=len, reverse=True):
+        if town in text:
+            return town, GHANA_TOWN_REGIONS[town]
+
+    # A region mentioned inside a longer phrase.
+    for region in GHANA_REGIONS:
+        if region.lower() in text:
+            return None, region
+
+    return text, None
+
 
 PHOTOGRAPHY_STYLES = [
     "Traditional",
@@ -1783,10 +1884,27 @@ def send_reminder_email(appointment: Appointment):
 def send_review_request_email(appointment: Appointment):
     base_url   = (app.config.get("BASE_URL") or "http://127.0.0.1:5000").rstrip("/")
     review_url = f"{base_url}/review/{appointment.review_token}"
+
+    # When a network photographer handled the session, say so -- the same link
+    # now rates them too, and naming them makes the ask concrete.
+    if appointment.photographer:
+        pname = (appointment.photographer.business_name
+                 or appointment.photographer.name)
+        photographer_line = (
+            f'<p style="color:#cccccc;font-size:0.92rem;margin:0 0 20px 0;'
+            f'line-height:1.6;">You will also be able to rate '
+            f'<strong style="color:#ffffff;">{pname}</strong>, the photographer '
+            f'who handled your session.</p>')
+        photographer_text = (f"You will also be able to rate {pname}, "
+                             f"the photographer who handled your session.\n\n")
+    else:
+        photographer_line = ""
+        photographer_text = ""
     sender     = app.config.get("MAIL_DEFAULT_SENDER") or app.config.get("MAIL_USERNAME")
     msg = Message(subject="How was your experience? — LensCraft Studio",
                   recipients=[appointment.email], sender=sender)
     msg.body = (f"Dear {appointment.customer_name},\n\nThank you for choosing LensCraft Studio!\n\n"
+                f"{photographer_text}"
                 f"Leave a review here: {review_url}\n\nRegards,\nLensCraft Studio\n")
     msg.html = f"""
     <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
@@ -1803,6 +1921,7 @@ def send_review_request_email(appointment: Appointment):
     <p style="color:#fff;font-size:1rem;margin:0 0 12px 0;text-align:left;">Dear <strong>{appointment.customer_name}</strong>,</p>
     <p style="color:#ccc;font-size:0.95rem;margin:0 0 24px 0;line-height:1.6;text-align:left;">
     Thank you for your <strong style="color:#fff;">{appointment.service}</strong> session. We'd love your feedback!</p>
+    {photographer_line}
     <a href="{review_url}"
        style="display:inline-block;background-color:#28a745;color:#fff;text-decoration:none;
               font-weight:bold;font-size:1rem;padding:14px 32px;border-radius:8px;margin-bottom:20px;">
@@ -2136,15 +2255,41 @@ def review(token):
         if rating not in ["1", "2", "3", "4", "5"]:
             flash("Please tap a star to rate your experience (1 to 5).", "danger")
             return redirect(url_for("review", token=token))
+
+        # 1. The studio review, as before.
         db.session.add(Review(
             appointment_id=appointment.id,
             customer_name=appointment.customer_name,
             service=appointment.service,
             rating=int(rating), comment=comment,
         ))
+
+        # 2. If a network photographer handled this booking, the same form also
+        #    rates them. Because this arrived through the private link emailed
+        #    after the session, the rating is VERIFIED -- we know this customer
+        #    really did work with this photographer.
+        photog_rating  = request.form.get("photographer_rating",  "").strip()
+        photog_comment = request.form.get("photographer_comment", "").strip()[:500]
+
+        if appointment.photographer and photog_rating in ["1", "2", "3", "4", "5"]:
+            # Guard against a repeat submission creating a duplicate.
+            already = PhotographerRating.query.filter_by(
+                appointment_id=appointment.id).first()
+            if not already:
+                db.session.add(PhotographerRating(
+                    photographer_id=appointment.photographer_id,
+                    appointment_id=appointment.id,
+                    customer_name=appointment.customer_name,
+                    rating=int(photog_rating),
+                    comment=photog_comment or None,
+                    ip_address=request.remote_addr,
+                    is_verified=True,
+                ))
+
         appointment.reviewed = True
         db.session.commit()
         return render_template("review.html", state="thanks", appointment=appointment)
+
     return render_template("review.html", state="form", appointment=appointment)
 
 
@@ -2212,9 +2357,34 @@ def photographers():
         # With no region chosen, at least put available photographers first.
         results.sort(key=lambda p: not p.is_available)
 
+    # ── Pagination ────────────────────────────────────────────────────────
+    # Without this the page grows without limit as photographers join: every
+    # card and every profile image would load at once. Paginating in Python
+    # rather than SQL because the region filter above already needed Python --
+    # "covers this region" combines nationwide, base region and travel list,
+    # which is not a single WHERE clause.
+    PER_PAGE = 12          # divides evenly into the 2, 3 and 4 column grid
+    page       = request.args.get("page", 1, type=int)
+    total      = len(results)
+    total_pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
+
+    # Guard against ?page=0 or a page number past the end.
+    page  = max(1, min(page, total_pages))
+    start = (page - 1) * PER_PAGE
+    page_results = results[start:start + PER_PAGE]
+
+    # Everything except "page", so the filter links keep their filters.
+    filter_args = {k: v for k, v in request.args.items() if k != "page"}
+
     return render_template(
         "photographers.html",
-        photographers=results,
+        photographers=page_results,
+        page=page,
+        total_pages=total_pages,
+        total_results=total,
+        showing_from=start + 1 if total else 0,
+        showing_to=min(start + PER_PAGE, total),
+        filter_args=filter_args,
         all_services=PHOTOGRAPHY_SERVICES,
         all_styles=PHOTOGRAPHY_STYLES,
         all_regions=GHANA_REGIONS,
@@ -2562,10 +2732,6 @@ def photographer_dashboard():
                       .filter_by(photographer_id=photographer.id, is_removed=True)
                       .order_by(PhotographerPortfolio.removed_at.desc()).all())
 
-    ratings = (PhotographerRating.query
-               .filter_by(photographer_id=photographer.id)
-               .order_by(PhotographerRating.created_at.desc()).all())
-
     bookings = (Appointment.query
                 .filter_by(photographer_id=photographer.id)
                 .order_by(Appointment.created_at.desc()).all())
@@ -2577,7 +2743,6 @@ def photographer_dashboard():
                            photographer=photographer,
                            portfolio=portfolio,
                            removed_images=removed_images,
-                           ratings=ratings,
                            bookings=bookings)
 
 
@@ -2710,61 +2875,16 @@ def photographer_change_password():
 # NEW — CUSTOMER STAR RATINGS ON PHOTOGRAPHER PROFILES
 # ============================================================
 
-@app.route("/photographer/<int:photographer_id>/rate", methods=["POST"])
-def rate_photographer(photographer_id):
-    """
-    Accepts a star rating left by a customer on a photographer's profile.
-
-    Anti-abuse measures applied here:
-      1. the photographer must exist and be active
-      2. rating must be a whole number from 1 to 5
-      3. one rating per IP address per photographer
-      4. comment is truncated to 500 characters
-
-    Honest limitation: this is an OPEN rating system, so it cannot prove the
-    reviewer was a real customer. Measure 3 blocks casual repeat spam from the
-    same device but not someone using a different network. A production system
-    would only accept ratings from customers with a completed booking.
-    """
-    photographer = Photographer.query.filter_by(
-        id=photographer_id, is_active=True
-    ).first()
-    if not photographer:
-        flash("Photographer not found.", "danger")
-        return redirect(url_for("photographers"))
-
-    customer_name = request.form.get("customer_name", "").strip()
-    rating_raw    = request.form.get("rating", "").strip()
-    comment       = request.form.get("comment", "").strip()[:500]
-
-    if not customer_name:
-        flash("Please enter your name.", "danger")
-        return redirect(url_for("photographer_profile", photographer_id=photographer_id))
-
-    if rating_raw not in ["1", "2", "3", "4", "5"]:
-        flash("Please select a star rating from 1 to 5.", "danger")
-        return redirect(url_for("photographer_profile", photographer_id=photographer_id))
-
-    # One rating per IP per photographer.
-    ip = request.remote_addr or "unknown"
-    already = PhotographerRating.query.filter_by(
-        photographer_id=photographer_id, ip_address=ip
-    ).first()
-    if already:
-        flash("You have already rated this photographer. Thank you!", "info")
-        return redirect(url_for("photographer_profile", photographer_id=photographer_id))
-
-    db.session.add(PhotographerRating(
-        photographer_id=photographer_id,
-        customer_name=customer_name,
-        rating=int(rating_raw),
-        comment=comment or None,
-        ip_address=ip,
-    ))
-    db.session.commit()
-
-    flash("Thank you for rating this photographer!", "success")
-    return redirect(url_for("photographer_profile", photographer_id=photographer_id))
+# NOTE: the open "rate this photographer" form has been removed.
+#
+# Ratings now arrive ONLY through the private link emailed to a customer after
+# their session is marked complete. That makes every rating verifiable: the
+# person really did book and complete a session with that photographer.
+#
+# An open form on the public profile could be used by anyone -- including a
+# competitor -- so mixing the two would have made the average meaningless.
+# The trade-off is that a new photographer shows no rating until their first
+# session completes, which is honest rather than misleading.
 
 
 # ============================================================
@@ -2826,11 +2946,8 @@ def ai_photographer_finder():
         return jsonify({"success": False,
                         "error": "AI finder is currently unavailable."}), 503
 
-    data            = request.get_json(silent=True) or {}
-    description     = (data.get("description") or "").strip()
-    customer_region = (data.get("region") or "").strip()
-    if customer_region not in GHANA_REGIONS:
-        customer_region = ""
+    data        = request.get_json(silent=True) or {}
+    description = (data.get("description") or "").strip()
 
     if not description:
         return jsonify({"success": False, "error": "Please describe what you are looking for."}), 400
@@ -2854,16 +2971,10 @@ def ai_photographer_finder():
     import json
     candidates_json = json.dumps(candidates, indent=2)
 
-    # If the customer told us their region, state it explicitly rather than
-    # leaving the model to infer it from free text.
-    region_line = (f"The customer is located in the {customer_region} region of Ghana.\n"
-                   if customer_region else "")
-
     prompt = (
         f"You are a photography platform assistant for LensCraft Studio in Ghana.\n"
         f"A customer is looking for a photographer and has described their needs as follows:\n\n"
         f'"{description}"\n\n'
-        f"{region_line}"
         f"Below is the list of registered photographers on the platform. "
         f"You must ONLY recommend photographers from this list. "
         f"Do NOT invent or suggest photographers that are not in this list.\n\n"
@@ -2906,23 +3017,28 @@ def ai_photographer_finder():
 
         f"IF A LOCATION WAS REQUESTED, SPLIT YOUR ANSWER INTO TWO GROUPS:\n\n"
 
-        f"GROUP 1 - LOCAL MATCHES (photographers already in that area):\n"
-        f"  Include a photographer here if ANY of these is true:\n"
-        f'    a) their "base_town" is the town the customer named;\n'
-        f'    b) their "base_region" is the region that town belongs to. So for '
-        f'a customer asking about "Accra", ANY photographer whose base_region is '
-        f'"Greater Accra" is LOCAL, wherever in the region they live;\n'
-        f"    c) their base town is a near neighbour of the customer's town, "
-        f"close enough that a local would consider them nearby.\n"
-        f"  Be sensible rather than literal. Someone in Tema is local to Accra. "
-        f"Someone in Tamale is not.\n"
-        f"  Only return an empty local list when genuinely nobody is in or near "
-        f"that area -- then the travel group below answers the customer instead.\n\n"
+        f"GROUP 1 - LOCAL MATCHES -- based on where they LIVE, nothing else:\n"
+        f'  Judge this using ONLY "base_town" and "base_region". '
+        f'The "covers" field is IRRELEVANT here.\n'
+        f"  Include a photographer here only if:\n"
+        f'    a) their "base_town" is the town the customer named, OR\n'
+        f'    b) their "base_region" is the region that town sits in. So for '
+        f'"Accra", anyone whose base_region is "Greater Accra" counts, wherever '
+        f"in the region they live.\n\n"
+        f"  CRITICAL: covering an area does NOT make someone local to it. "
+        f"A photographer based in Kasoa whose covers list includes Eastern is "
+        f'NOT local to Koforidua -- they live in a different region. They belong '
+        f"in GROUP 2. Never write a reason like \"covers Eastern including "
+        f"Koforidua\" for a local match, because that is coverage, not residence.\n"
+        f"  If nobody actually LIVES in or near that area, return an EMPTY local "
+        f"list. That is the honest answer, and the customer is shown the travel "
+        f"options underneath it.\n\n"
 
-        f"GROUP 2 - TRAVEL MATCHES (based elsewhere, but will come):\n"
-        f"  Photographers who are NOT in or near that area, but can still reach "
-        f'it -- "covers" is "Nationwide", or their covers list includes the '
-        f"customer's region.\n"
+        f"GROUP 2 - TRAVEL MATCHES (live elsewhere, but will come):\n"
+        f"  Everyone else who can still reach the customer -- "
+        f'"covers" is "Nationwide", or their covers list includes the '
+        f"customer's region. This is where a Kasoa photographer serving "
+        f"Koforidua belongs.\n"
         f"  Never place the same photographer in both groups.\n\n"
 
         f"HANDLING ANY OTHER WORDING:\n"
@@ -2981,11 +3097,10 @@ def ai_photographer_finder():
 
         # The AI now returns two groups. Older single-list responses are still
         # handled, so a malformed reply degrades rather than breaking.
-        # Whether location was part of the request at all. The dropdown counts
-        # as an explicit request; otherwise we trust what the AI read from the
-        # customer's own words.
-        location_requested = (customer_region
-                              or (ai_result.get("location_requested") or "").strip())
+        # Whether location was part of the request at all, taken from what the
+        # AI read in the customer's own words. The server still verifies the
+        # grouping below, so a wrong reading here cannot mislead the customer.
+        location_requested = (ai_result.get("location_requested") or "").strip()
 
         local_raw  = ai_result.get("local_matches",  [])
         travel_raw = ai_result.get("travel_matches", [])
@@ -3040,44 +3155,41 @@ def ai_photographer_finder():
         local_matches  = enrich(local_raw)
         travel_matches = enrich(travel_raw)
 
-        # Safety net. The model occasionally treats a city name too literally --
-        # putting an Accra-based photographer in "travel" because the customer
-        # typed "Accra" and their base_town says "Tema". Both are in Greater
-        # Accra, so that is wrong. Here we move anyone whose base region matches
-        # the requested place back into the local group.
-        if location_requested and travel_matches:
-            requested = location_requested.strip().lower()
+        # ── Server decides who is LOCAL; the AI only ranks and explains ──
+        #
+        # The model kept conflating two different things: "covers Eastern" is
+        # not the same as "based in Koforidua". A photographer in Kasoa who
+        # travels to Koforidua is a travel match, never a local one.
+        #
+        # Rather than hoping the prompt holds, locality is recomputed here from
+        # the actual base_town and base_region. The AI still decides who is
+        # worth recommending and why -- code just files them correctly.
+        if location_requested:
+            want_town, want_region = resolve_place(location_requested)
 
-            # Which region does the requested place sit in?
-            target_region = None
-            for region in GHANA_REGIONS:
-                if region.lower() in requested or requested in region.lower():
-                    target_region = region
-                    break
-            if not target_region:
-                # Try matching the place against photographers' own base towns.
-                for photo in all_photographers:
-                    if photo.base_town and photo.base_town.lower() == requested:
-                        target_region = photo.base_region
-                        break
+            def is_local(match):
+                photo = photographer_map.get(match["id"])
+                if not photo:
+                    return False
+                # Exactly the town they asked for.
+                if (want_town and photo.base_town
+                        and photo.base_town.strip().lower() == want_town):
+                    return True
+                # Same region -- Tema counts as local to Accra.
+                if want_region and photo.base_region == want_region:
+                    return True
+                return False
 
-            if target_region:
-                still_travelling = []
-                for match in travel_matches:
-                    photo = photographer_map.get(match["id"])
-                    same_town   = (photo and photo.base_town
-                                   and photo.base_town.strip().lower() == requested)
-                    same_region = (photo and photo.base_region == target_region)
-                    if same_town or same_region:
-                        print(f"[AI-FINDER] moved {match['name']} to local "
-                              f"({photo.base_label()} is in {target_region})")
-                        local_matches.append(match)
-                    else:
-                        still_travelling.append(match)
-                travel_matches = still_travelling
+            combined = local_matches + travel_matches
+            local_matches  = [m for m in combined if is_local(m)]
+            travel_matches = [m for m in combined if not is_local(m)]
 
-                # Keep the strongest matches at the top after any moves.
-                local_matches.sort(key=lambda m: m.get("match_score", 0), reverse=True)
+            # Highest scoring first within each group.
+            local_matches.sort(key=lambda m: m.get("match_score", 0), reverse=True)
+            travel_matches.sort(key=lambda m: m.get("match_score", 0), reverse=True)
+
+            print(f"[AI-FINDER] '{location_requested}' -> town={want_town}, "
+                  f"region={want_region}")
 
         print(f"[AI-FINDER] {len(local_matches)} local, "
               f"{len(travel_matches)} travel match(es)")
@@ -3085,7 +3197,6 @@ def ai_photographer_finder():
         return jsonify({
             "success":            True,
             "description":        description,
-            "region":             customer_region,
             "location_requested": location_requested,
             "local_matches":      local_matches,
             "travel_matches":     travel_matches,

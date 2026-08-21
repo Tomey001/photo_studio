@@ -26,6 +26,11 @@
         padding: 40px;
         background: #fff;
     }
+    /* Slightly smaller stars for the photographer section, so the studio
+       rating stays the primary action on the page. */
+    .star-rating.star-rating-sm {
+        font-size: 2.1rem;
+    }
 </style>
 
 <div class="row justify-content-center">
@@ -68,6 +73,26 @@
                 Your review has been submitted successfully. It means a lot to us
                 and helps other customers discover LensCraft Studio.
             </p>
+
+            {# When a network photographer handled the session, confirm that
+               their rating was recorded too, and that it counts as verified. #}
+            {% if appointment.photographer %}
+            <div class="p-3 rounded mt-3 mb-3" style="background:#e8f5e9;">
+                <p class="mb-0" style="font-size:0.9rem; color:#0a3622;">
+                    <i class="bi bi-patch-check-fill me-1"></i>
+                    Your rating for
+                    <strong>{{ appointment.photographer.business_name or appointment.photographer.name }}</strong>
+                    has been added to their profile as a
+                    <strong>verified review</strong>, because you booked and
+                    completed a session with them.
+                </p>
+            </div>
+            <a href="{{ url_for('photographer_profile', photographer_id=appointment.photographer_id) }}"
+               class="btn btn-outline-dark mt-1 me-2">
+                <i class="bi bi-person me-2"></i>View Their Profile
+            </a>
+            {% endif %}
+
             <a href="{{ url_for('index') }}" class="btn btn-dark mt-2">
                 <i class="bi bi-house me-2"></i>Back to Homepage
             </a>
@@ -88,6 +113,18 @@
 
             <form method="POST" action="{{ url_for('review', token=appointment.review_token) }}"
                   id="reviewForm">
+
+                {# When a network photographer handled this booking, the page
+                   asks two separate questions, so we label this one clearly. #}
+                {% if appointment.photographer %}
+                <h6 class="fw-bold mb-1">
+                    <i class="bi bi-building me-2" style="color:#0f3460;"></i>
+                    1. The studio and booking
+                </h6>
+                <p class="text-muted mb-3" style="font-size:0.85rem;">
+                    Booking, communication and the overall service.
+                </p>
+                {% endif %}
 
                 <!-- Star rating -->
                 <div class="text-center mb-4">
@@ -113,6 +150,76 @@
                               placeholder="Tell us what you loved, or how we can improve..."></textarea>
                 </div>
 
+                {# ---------- Photographer rating ----------
+                   Only appears when a network photographer handled the booking.
+                   Because this arrives through the private link emailed after
+                   the session, the rating is stored as VERIFIED. #}
+                {% if appointment.photographer %}
+                <hr class="my-4">
+
+                <div class="d-flex align-items-center gap-3 mb-1">
+                    {% if appointment.photographer.profile_image %}
+                    <img src="{{ url_for('static', filename='img/photographers/' ~ appointment.photographer.profile_image) }}"
+                         alt="{{ appointment.photographer.name }}"
+                         style="width:48px; height:48px; border-radius:50%; object-fit:cover;">
+                    {% else %}
+                    <div style="width:48px; height:48px; border-radius:50%; background:#0f3460;
+                                display:flex; align-items:center; justify-content:center;">
+                        <i class="bi bi-person-circle" style="color:#c5cae9; font-size:1.5rem;"></i>
+                    </div>
+                    {% endif %}
+                    <div>
+                        <h6 class="fw-bold mb-0">
+                            2. Your photographer
+                        </h6>
+                        <p class="text-muted mb-0" style="font-size:0.85rem;">
+                            {{ appointment.photographer.business_name or appointment.photographer.name }}
+                        </p>
+                    </div>
+                </div>
+
+                <p class="text-muted mb-3" style="font-size:0.85rem;">
+                    How did they do on the day? Were they punctual, easy to work
+                    with, and happy with the photos?
+                </p>
+
+                <div class="text-center mb-3">
+                    <div class="star-rating star-rating-sm" id="photographerStarRating">
+                        <i class="bi bi-star" data-value="1"></i>
+                        <i class="bi bi-star" data-value="2"></i>
+                        <i class="bi bi-star" data-value="3"></i>
+                        <i class="bi bi-star" data-value="4"></i>
+                        <i class="bi bi-star" data-value="5"></i>
+                    </div>
+                    <input type="hidden" name="photographer_rating"
+                           id="photographerRatingInput" value="">
+                    <div id="photographerRatingText" class="form-text mt-1">
+                        Tap a star to rate your photographer
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="photographer_comment" class="form-label">
+                        About your photographer <span class="text-muted">(optional)</span>
+                    </label>
+                    <textarea class="form-control" id="photographer_comment"
+                              name="photographer_comment" rows="3" maxlength="500"
+                              placeholder="What were they like to work with?"></textarea>
+                    <div class="form-text text-end" id="photogCharCount">0 / 500</div>
+                </div>
+
+                <div class="alert alert-success d-flex align-items-start"
+                     style="font-size:0.85rem;" role="alert">
+                    <i class="bi bi-patch-check-fill me-2 mt-1"></i>
+                    <div>
+                        This will appear on their profile as a
+                        <strong>verified review</strong>, because you booked and
+                        completed a session with them.
+                    </div>
+                </div>
+                {% endif %}
+                {# ---------- End photographer rating ---------- #}
+
                 <button type="submit" class="btn btn-book w-100">
                     <i class="bi bi-send-fill me-2"></i>Submit Review
                 </button>
@@ -126,40 +233,82 @@
 
 {% if state == 'form' or not state %}
 <script>
-    const stars = document.querySelectorAll('#starRating i');
-    const ratingInput = document.getElementById('ratingInput');
-    const ratingText = document.getElementById('ratingText');
     const labels = { 1: 'Poor', 2: 'Fair', 3: 'Good', 4: 'Very good', 5: 'Excellent' };
-    let currentRating = 0;
 
-    // Fill the stars up to a given number.
-    function paint(upTo) {
-        stars.forEach(s => {
-            const v = parseInt(s.dataset.value);
-            s.className = (v <= upTo) ? 'bi bi-star-fill' : 'bi bi-star';
+    // Wires up one star widget. Written once and called for each set of stars,
+    // so the studio rating and the photographer rating cannot drift apart.
+    function setupStars(containerId, inputId, textId, defaultText) {
+        const container = document.getElementById(containerId);
+        if (!container) return null;
+
+        const stars = container.querySelectorAll('i');
+        const input = document.getElementById(inputId);
+        const text  = document.getElementById(textId);
+        let current = 0;
+
+        function paint(upTo) {
+            stars.forEach(s => {
+                const v = parseInt(s.dataset.value);
+                s.className = (v <= upTo) ? 'bi bi-star-fill' : 'bi bi-star';
+            });
+        }
+
+        stars.forEach(star => {
+            const value = parseInt(star.dataset.value);
+            star.addEventListener('mouseenter', () => paint(value));
+            star.addEventListener('mouseleave', () => paint(current));
+            star.addEventListener('click', () => {
+                current = value;
+                input.value = current;
+                paint(current);
+                text.textContent = labels[current];
+                text.className = 'form-text mt-1 text-success';
+            });
+        });
+
+        return {
+            hasValue: () => Boolean(input.value),
+            warn: (message) => {
+                text.textContent = message;
+                text.className = 'form-text mt-1 text-danger';
+                container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        };
+    }
+
+    const studioStars = setupStars(
+        'starRating', 'ratingInput', 'ratingText', 'Tap a star to rate');
+
+    // Only present when a network photographer handled the booking.
+    const photographerStars = setupStars(
+        'photographerStarRating', 'photographerRatingInput',
+        'photographerRatingText', 'Tap a star to rate your photographer');
+
+    // Character counter for the photographer comment, which the server caps at 500.
+    const photogComment = document.getElementById('photographer_comment');
+    const photogCount   = document.getElementById('photogCharCount');
+    if (photogComment && photogCount) {
+        photogComment.addEventListener('input', () => {
+            const len = photogComment.value.length;
+            photogCount.textContent = len + ' / 500';
+            photogCount.style.color = (len > 450) ? '#dc3545' : '';
         });
     }
 
-    stars.forEach(star => {
-        const value = parseInt(star.dataset.value);
-        // Preview on hover
-        star.addEventListener('mouseenter', () => paint(value));
-        star.addEventListener('mouseleave', () => paint(currentRating));
-        // Lock in on click
-        star.addEventListener('click', () => {
-            currentRating = value;
-            ratingInput.value = currentRating;
-            paint(currentRating);
-            ratingText.textContent = labels[currentRating];
-        });
-    });
-
-    // Don't allow submitting with no rating chosen.
     document.getElementById('reviewForm').addEventListener('submit', function (e) {
-        if (!ratingInput.value) {
+        // The studio rating is required.
+        if (studioStars && !studioStars.hasValue()) {
             e.preventDefault();
-            ratingText.textContent = 'Please tap a star first.';
-            ratingText.className = 'form-text mt-1 text-danger';
+            studioStars.warn('Please tap a star first.');
+            return;
+        }
+        // The photographer rating is optional, but if they started typing a
+        // comment about them, they almost certainly meant to rate them too.
+        if (photographerStars && !photographerStars.hasValue()
+                && photogComment && photogComment.value.trim()) {
+            e.preventDefault();
+            photographerStars.warn(
+                'Please also tap a star to rate your photographer.');
         }
     });
 </script>
