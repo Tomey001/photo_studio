@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {# Keep the staff login pages out of search results. #}
+    {% if request.endpoint in ['admin_login', 'photographer_login'] %}
+    <meta name="robots" content="noindex, nofollow">
+    {% endif %}
     <title>{% block title %}LensCraft Studio{% endblock %}</title>
 
     <!-- Bootstrap CSS -->
@@ -53,19 +57,28 @@
                         </a>
                     </li>
 
+                    {# ── Staff links ─────────────────────────────────────────────
+                       The photographer and admin login pages are NOT advertised to
+                       visitors. Staff reach them by direct URL (photographers are
+                       given theirs in the welcome email). Once someone is logged in,
+                       a link to their own area appears so they can navigate back. #}
+                    {% if session.get('photographer_logged_in') %}
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint in ['photographer_login','photographer_dashboard'] %}active{% endif %}"
-                           href="{% if session.get('photographer_logged_in') %}{{ url_for('photographer_dashboard') }}{% else %}{{ url_for('photographer_login') }}{% endif %}">
-                            <i class="bi bi-camera me-1"></i>Photographer Portal
+                        <a class="nav-link {% if request.endpoint in ['photographer_dashboard','photographer_force_password'] %}active{% endif %}"
+                           href="{{ url_for('photographer_dashboard') }}">
+                            <i class="bi bi-camera me-1"></i>My Portal
                         </a>
                     </li>
+                    {% endif %}
 
+                    {% if session.get('admin_logged_in') %}
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'admin_login' %}active{% endif %}"
-                           href="{{ url_for('admin_login') }}">
-                            <i class="bi bi-person-lock me-1"></i>Admin
+                        <a class="nav-link {% if request.endpoint in ['admin_dashboard','admin_photographers'] %}active{% endif %}"
+                           href="{{ url_for('admin_dashboard') }}">
+                            <i class="bi bi-speedometer2 me-1"></i>Dashboard
                         </a>
                     </li>
+                    {% endif %}
 
                 </ul>
             </div>
