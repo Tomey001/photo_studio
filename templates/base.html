@@ -21,6 +21,98 @@
 <body>
 
     <!-- ======= NAVBAR ======= -->
+    {# Staff pages get their own menu. The public links (Home, Find a Photographer,
+       Book Appointment) are for customers: a photographer or admin working in their
+       own area does not see them, and customers never see staff links.
+       photographer_profile is the PUBLIC profile page, so it counts as public. #}
+    {% set ep = request.endpoint or '' %}
+    {% set is_admin_page = ep.startswith('admin') %}
+    {% set is_photog_page = ep.startswith('photographer_') and ep != 'photographer_profile' %}
+
+    {% if is_admin_page or is_photog_page %}
+    <!-- ── STAFF NAVBAR ── -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            {% if is_admin_page and session.get('admin_logged_in') %}
+            <a class="navbar-brand fw-bold" href="{{ url_for('admin_dashboard') }}">
+                <i class="bi bi-camera-fill me-2"></i>LensCraft Studio
+                <span class="badge bg-secondary ms-2 align-middle" style="font-size:0.65rem;">Admin</span>
+            </a>
+            {% elif is_photog_page and session.get('photographer_logged_in') and ep != 'photographer_force_password' %}
+            <a class="navbar-brand fw-bold" href="{{ url_for('photographer_dashboard') }}">
+                <i class="bi bi-camera-fill me-2"></i>LensCraft Studio
+                <span class="badge bg-secondary ms-2 align-middle" style="font-size:0.65rem;">Photographer Portal</span>
+            </a>
+            {% else %}
+            {# Login and set-password pages: just the name, no navigation. #}
+            <span class="navbar-brand fw-bold mb-0">
+                <i class="bi bi-camera-fill me-2"></i>LensCraft Studio
+            </span>
+            {% endif %}
+
+            {% if is_admin_page and session.get('admin_logged_in') and ep != 'admin_login' %}
+            <button class="navbar-toggler" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link {% if ep == 'admin_dashboard' %}active{% endif %}"
+                           href="{{ url_for('admin_dashboard') }}">
+                            <i class="bi bi-speedometer2 me-1"></i>Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if ep in ['admin_photographers','admin_photographer_add','admin_photographer_edit'] %}active{% endif %}"
+                           href="{{ url_for('admin_photographers') }}">
+                            <i class="bi bi-people me-1"></i>Photographers
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}" target="_blank">
+                            <i class="bi bi-box-arrow-up-right me-1"></i>View Site
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('admin_logout') }}">
+                            <i class="bi bi-box-arrow-right me-1"></i>Log out
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            {% elif is_photog_page and session.get('photographer_logged_in') and ep not in ['photographer_login', 'photographer_force_password'] %}
+            <button class="navbar-toggler" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('photographer_dashboard') }}">
+                            <i class="bi bi-camera me-1"></i>My Portal
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link"
+                           href="{{ url_for('photographer_profile', photographer_id=session.get('photographer_id')) }}"
+                           target="_blank">
+                            <i class="bi bi-person-badge me-1"></i>My Public Profile
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('photographer_logout') }}">
+                            <i class="bi bi-box-arrow-right me-1"></i>Log out
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+    </nav>
+
+    {% else %}
+    <!-- ── PUBLIC NAVBAR (customers) ── -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
             <a class="navbar-brand fw-bold" href="{{ url_for('index') }}">
@@ -34,56 +126,29 @@
 
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
-
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}"
+                        <a class="nav-link {% if ep == 'index' %}active{% endif %}"
                            href="{{ url_for('index') }}">
                             <i class="bi bi-house me-1"></i>Home
                         </a>
                     </li>
-
-                    <!-- ── NEW: Find a Photographer ── -->
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint in ['photographers','photographer_profile','join_network'] %}active{% endif %}"
+                        <a class="nav-link {% if ep in ['photographers','photographer_profile','join_network'] %}active{% endif %}"
                            href="{{ url_for('photographers') }}">
                             <i class="bi bi-people me-1"></i>Find a Photographer
                         </a>
                     </li>
-
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'book' %}active{% endif %}"
+                        <a class="nav-link {% if ep == 'book' %}active{% endif %}"
                            href="{{ url_for('book') }}">
                             <i class="bi bi-calendar-plus me-1"></i>Book Appointment
                         </a>
                     </li>
-
-                    {# ── Staff links ─────────────────────────────────────────────
-                       The photographer and admin login pages are NOT advertised to
-                       visitors. Staff reach them by direct URL (photographers are
-                       given theirs in the welcome email). Once someone is logged in,
-                       a link to their own area appears so they can navigate back. #}
-                    {% if session.get('photographer_logged_in') %}
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint in ['photographer_dashboard','photographer_force_password'] %}active{% endif %}"
-                           href="{{ url_for('photographer_dashboard') }}">
-                            <i class="bi bi-camera me-1"></i>My Portal
-                        </a>
-                    </li>
-                    {% endif %}
-
-                    {% if session.get('admin_logged_in') %}
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint in ['admin_dashboard','admin_photographers'] %}active{% endif %}"
-                           href="{{ url_for('admin_dashboard') }}">
-                            <i class="bi bi-speedometer2 me-1"></i>Dashboard
-                        </a>
-                    </li>
-                    {% endif %}
-
                 </ul>
             </div>
         </div>
     </nav>
+    {% endif %}
     <!-- ======= END NAVBAR ======= -->
 
     <!-- ======= FLASH MESSAGES ======= -->
